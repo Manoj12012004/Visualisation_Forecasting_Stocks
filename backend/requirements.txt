@@ -15,10 +15,9 @@ alpha_vantage
 twelvedata[pandas]
 requests
 websockets
-asyncio
 flask
 flask-cors
-sqlachemy
+sqlalchemy
 sqlalchemy-utils
 pydantic
 uvicorn
