@@ -17,6 +17,7 @@ requests
 websockets
 flask
 flask-cors
+fastapi
 sqlalchemy
 sqlalchemy-utils
 pydantic
