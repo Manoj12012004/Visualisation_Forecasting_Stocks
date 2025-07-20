@@ -16,7 +16,6 @@ twelvedata[pandas]
 requests
 websockets
 asyncio
-json
 flask
 flask-cors
 sqlachemy
