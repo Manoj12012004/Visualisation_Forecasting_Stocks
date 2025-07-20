@@ -1,0 +1,17 @@
+# Visual Studio cache files
+.vs/
+
+# Python virtual environments
+.venv/
+env/
+venv/
+
+# Bytecode & build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE settings
+.vscode/
+.idea/

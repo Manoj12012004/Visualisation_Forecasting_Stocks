@@ -1,0 +1,14 @@
+pandas
+numpy
+scikit-learn
+nltk
+dill
+ta
+yfinance
+statsmodels
+tensorflow
+matplotlib
+streamlit
+prophet
+xgboost
+alpha_vantage

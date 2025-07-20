@@ -1,0 +1,18 @@
+[2025-07-20 22:44:58,529] 507 apscheduler.scheduler - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+[2025-07-20 22:44:58,530] 1090 apscheduler.scheduler - INFO - Added job "auto_retrain" to job store "default"
+[2025-07-20 22:44:58,530] 214 apscheduler.scheduler - INFO - Scheduler started
+[2025-07-20 22:45:19,361] 15 root - INFO - Started streaming for AAPL
+[2025-07-20 22:45:19,363] 30 root - INFO - Starting WebSocket connection
+[2025-07-20 22:45:19,402] 15 root - INFO - Started streaming for AAPL
+[2025-07-20 22:45:19,404] 30 root - INFO - Starting WebSocket connection
+[2025-07-20 22:45:20,318] 39 root - INFO - Subscribed to AAPL
+[2025-07-20 22:45:20,335] 39 root - INFO - Subscribed to AAPL
+[2025-07-20 22:45:20,336] 67 root - ERROR - Error receiving/parsing message: no close frame received or sent
+[2025-07-20 22:46:43,385] 15 root - INFO - Started streaming for AAPL
+[2025-07-20 22:46:43,389] 30 root - INFO - Starting WebSocket connection
+[2025-07-20 22:46:43,413] 15 root - INFO - Started streaming for AAPL
+[2025-07-20 22:46:43,426] 30 root - INFO - Starting WebSocket connection
+[2025-07-20 22:46:44,113] 67 root - ERROR - Error receiving/parsing message: no close frame received or sent
+[2025-07-20 22:46:44,213] 39 root - INFO - Subscribed to AAPL
+[2025-07-20 22:46:44,281] 67 root - ERROR - Error receiving/parsing message: no close frame received or sent
+[2025-07-20 22:46:44,299] 39 root - INFO - Subscribed to AAPL

@@ -1,0 +1,8 @@
+[2025-07-20 22:48:38,094] 507 apscheduler.scheduler - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+[2025-07-20 22:48:38,094] 1090 apscheduler.scheduler - INFO - Added job "auto_retrain" to job store "default"
+[2025-07-20 22:48:38,094] 214 apscheduler.scheduler - INFO - Scheduler started
+[2025-07-20 22:48:47,906] 15 root - INFO - Started streaming for AAPL
+[2025-07-20 22:48:47,908] 30 root - INFO - Starting WebSocket connection
+[2025-07-20 22:48:47,943] 15 root - INFO - Started streaming for AAPL
+[2025-07-20 22:48:47,945] 30 root - INFO - Starting WebSocket connection
+[2025-07-20 22:48:48,620] 39 root - INFO - Subscribed to AAPL
