@@ -17,7 +17,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-Base.metadata.create_all(bind=engine)
+# Base.metadata.create_all(bind=engine)
 
 @app.get("/stocks")
 def get_stocks():
@@ -41,7 +41,7 @@ async def startup_event():
     asyncio.create_task(alpha_stream.twelvedata_websocket_listener())
 
 
-# Background auto-retrain every 24 hours
-scheduler = BackgroundScheduler()
-scheduler.add_job(auto_retrain, 'interval', hours=24)
-scheduler.start()
+# # Background auto-retrain every 24 hours
+# scheduler = BackgroundScheduler()
+# scheduler.add_job(auto_retrain, 'interval', hours=24)
+# scheduler.start()
