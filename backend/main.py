@@ -6,6 +6,7 @@ from src.database.connection import Base, engine
 from src.services.retrain_service import auto_retrain
 from apscheduler.schedulers.background import BackgroundScheduler
 import asyncio
+import uvicorn
 
 app = FastAPI()
 
