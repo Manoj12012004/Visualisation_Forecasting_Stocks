@@ -22,4 +22,6 @@ sqlalchemy
 sqlalchemy-utils
 pydantic
 uvicorn
+pymysql
+apscheduler
 
