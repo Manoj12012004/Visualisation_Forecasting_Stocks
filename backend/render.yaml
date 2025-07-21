@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: stock-backend
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerContext: .
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: "8000"

@@ -40,6 +40,9 @@ app.include_router(live_data.router)
 async def startup_event():
     asyncio.create_task(alpha_stream.twelvedata_websocket_listener())
 
+import os
+port = int(os.environ.get("PORT", 8000))
+uvicorn.run(app, host="0.0.0.0", port=port)
 
 # # Background auto-retrain every 24 hours
 # scheduler = BackgroundScheduler()
