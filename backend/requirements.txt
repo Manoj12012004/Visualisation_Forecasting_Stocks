@@ -21,4 +21,8 @@ sqlalchemy
 sqlalchemy-utils
 pydantic
 uvicorn
+apscheduler
+fastapi
+pymysql
+requests
 

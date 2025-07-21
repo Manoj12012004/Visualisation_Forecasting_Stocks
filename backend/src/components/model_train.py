@@ -5,7 +5,6 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense,Dropout, GRU, Input
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 # from prophet import Prophet
-import base64
 from xgboost import XGBRegressor
 from statsmodels.tsa.stattools import adfuller
 import io
