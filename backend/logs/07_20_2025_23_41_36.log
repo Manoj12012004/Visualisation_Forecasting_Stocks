@@ -1,3 +1,0 @@
-[2025-07-20 23:41:53,979] 507 apscheduler.scheduler - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
-[2025-07-20 23:41:53,979] 1090 apscheduler.scheduler - INFO - Added job "auto_retrain" to job store "default"
-[2025-07-20 23:41:53,981] 214 apscheduler.scheduler - INFO - Scheduler started

@@ -24,4 +24,5 @@ pydantic
 uvicorn
 pymysql
 apscheduler
+shap
 

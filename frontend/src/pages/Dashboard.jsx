@@ -13,7 +13,7 @@ function DashboardPage() {
       <Header />
       <div style={{ display: 'flex', gap: '1rem' }}>
         <StockSelector />
-        <LiveTicker />
+        
       </div>
       <TopStocks />
       <GlobalTrendsPanel />

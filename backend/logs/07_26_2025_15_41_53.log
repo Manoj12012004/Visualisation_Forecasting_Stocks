@@ -1,0 +1,8 @@
+[2025-07-26 15:43:59,765] 117 root - INFO - Started streaming for AAPL
+[2025-07-26 15:43:59,814] 31 root - INFO - Starting WebSocket connection
+[2025-07-26 15:45:00,292] 71 root - WARNING - Attempt 1: Timeout connecting to Twelve Data
+[2025-07-26 15:45:00,377] 117 root - INFO - Started streaming for AAPL
+[2025-07-26 15:45:00,379] 31 root - INFO - Starting WebSocket connection
+[2025-07-26 15:45:31,203] 71 root - WARNING - Attempt 1: Timeout connecting to Twelve Data
+[2025-07-26 15:45:32,629] 25 root - INFO - Starting training for AAPL
+[2025-07-26 15:45:32,631] 14 root - INFO - Running Training Pipeline for model...

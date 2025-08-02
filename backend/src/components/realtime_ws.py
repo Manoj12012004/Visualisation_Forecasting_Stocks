@@ -36,7 +36,7 @@ async def handle_message(message):
 
     last_timestamp = timestamp
     price_window.append(price)
-    print(f"[🟢 New Price] {price} at {timestamp}")
+
 
     # Once we have enough data points
     if len(price_window) == PRICE_WINDOW_SIZE:
@@ -45,15 +45,12 @@ async def handle_message(message):
         matched_model_id = find_similar_sequence(sequence, stored_sequences)
         if matched_model_id:
             model = load_model(matched_model_id)
-            print(f"[🔁 Using existing model: {matched_model_id}]")
         else:
             model = train_model(sequence)
             stored_sequences['model_' + str(timestamp)] = sequence
-            print("[🧠 Trained new model]")
 
         prediction = predict_with_model(model, sequence)
-        print(f"[🔮 Prediction] Next price: {prediction:.4f}")
-
+        
 async def connect():
     uri = "wss://ws.twelvedata.com/v1/quotes/price?apikey=" + API_KEY
     async with websockets.connect(uri) as ws:

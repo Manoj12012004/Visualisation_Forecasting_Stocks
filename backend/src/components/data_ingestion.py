@@ -9,12 +9,15 @@ from datetime import datetime
 from src.logger import logging
 from src.exception import CustomException
 from twelvedata import TDClient
+from src.services.live_stream import active_connections
+import requests
 
 
 class DataIngestion:
     def __init__(self, stock_symbol="AAPL"):
         self.stock_symbol = stock_symbol.upper()
         self.api_key = "6a7c4a11380c48c0a644dd1cd06f2702"
+        self.fin_api=f"https://financialmodelingprep.com/stable/historical-price-eod/full?symbol={self.stock_symbol}&apikey=6jOSYrWTaOpAwmkxYBIwAHQoSszIUx4G"
         self.ws_url = f"wss://ws.twelvedata.com/v1/quotes/price?apikey={self.api_key}"
         self.data = []
         self.last_timestamp = None
@@ -24,61 +27,79 @@ class DataIngestion:
         os.makedirs("artifacts", exist_ok=True)
         df = pd.DataFrame(self.data)
         df.to_csv("artifacts/live_stock_data.csv", index=False)
-        print(f"✅ Saved {len(self.data)} rows to artifacts/live_stock_data.csv")
         
+    def fin_data_ingestion(self):
+        response=requests.get(url=self.fin_api)
+        data=pd.DataFrame(response.json())
+        return data
+    
     async def connect_and_stream(self):
-        logging.info("Starting WebSocket connection")
+        for attempt in range(3):
+            try:
+                async with websockets.connect(self.ws_url,open_timeout=10) as ws:
+                    await ws.send(json.dumps({
+                        "action": "subscribe",
+                        "params": {"symbols": self.stock_symbol}
+                    }))
+                    
+                    while True:
+                        try:
+                            message = await ws.recv()
+                            d = json.loads(message)
+                            if d.get("event") != "price":
+                                continue
+                            timestamp = int(d.get("timestamp"))
+                            dt_str = datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
 
-        try:
-            async with websockets.connect(self.ws_url, open_timeout=10) as ws:
-                # Subscribe
-                await ws.send(json.dumps({
-                    "action": "subscribe",
-                    "params": {"symbols": self.stock_symbol}
-                }))
-                logging.info(f"Subscribed to {self.stock_symbol}")
+                            entry = {
+                                "timestamp": timestamp,
+                                "datetime": dt_str,
+                                "symbol": d.get("symbol"),
+                                "price": float(d.get("price"))
+                            }
+                            # Broadcast to frontend clients
+                            for conn in active_connections:
+                                await conn.send_json(entry)
 
-                while True:
-                    try:
-                        message = await ws.recv()
-                        d = json.loads(message)
-                        if d.get("event") != "price":
-                            continue
-                        print(f"Received message: {d}")
-                        
-                        timestamp = int(d.get("timestamp"))
+                            if timestamp != self.last_timestamp:
+                                self.last_timestamp = timestamp
+                                self.data.append(entry)
+                                self.save_to_csv()
 
-                        dt_str = datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
-                        
-                        entry = {
-                            "timestamp": timestamp,
-                            "datetime": dt_str,
-                            "symbol": d.get("symbol"),
-                            "price": float(d.get("price"))
-                        }
-                        print(f"Processed entry: {entry}")
-                        
-                        if timestamp != self.last_timestamp:
-                            self.last_timestamp = timestamp
-                            self.data.append(entry)
-                            self.save_to_csv()
-
-                    except Exception as e:
-                        logging.error(f"Error receiving/parsing message: {e}")
-                        break
-
-        except Exception as e:
-            raise CustomException(e, sys)
-
+                        except Exception as e:
+                            break
+            except asyncio.TimeoutError as e:
+                await asyncio.sleep(3)
+                raise CustomException(e,sys)
+                
     async def initiate_live_ingestion(self):
         await self.connect_and_stream()
-
-    def initiate_data_ingestion(self,interval):
+        
+    def fetch_current_price(self):
         try:
             td=TDClient(apikey=self.api_key)
-            df = td.time_series(symbol=self.stock_symbol, outputsize=5000, interval=interval).as_pandas()
-            # os.makedirs("/ml/artifacts", exist_ok=True)
-            # df.to_csv("/ml/artifacts/stock_data.csv")
+            params={
+                "symbol":self.stock_symbol,
+                "outputsize":5000,
+            }
+            df=td.time_series(**params).as_pandas()
+            return df
+        except Exception as e:
+            raise CustomException(e,sys)
+        
+    def initiate_data_ingestion(self,interval, start=None, end=None):
+        try:
+            td=TDClient(apikey=self.api_key)
+            params={
+                "symbol": self.stock_symbol,
+                "outputsize": 500,
+                "interval": interval
+            }
+            if start:
+                params["start_date"] = start
+            if end:
+                params["end_date"] = end
+            df = td.time_series(**params).as_pandas()
             return df
         except Exception as e:
             raise CustomException(e, sys)
@@ -99,7 +120,7 @@ class DataIngestion:
             top_stocks=[item['symbol'] for item in all_stocks[:100]]
             results=[]
             for stock in top_stocks:
-                df = td.time_series(symbol=stock, outputsize=1, interval='1d').as_pandas()
+                df = td.time_series(symbol=self.stock_symbol, outputsize=1, interval='1day').as_pandas()
                 if 'values' in df and len(df['values'])>0:
                     latest=data['values'][0]
                     volume=float(latest['volume'])
@@ -130,22 +151,45 @@ class DataIngestion:
             return top_gainers, top_losers, most_active, trending
         except Exception as e:
             raise CustomException(e, sys)
-# ✅ Utility
-def get_latest_price(symbol: str):
-    path = "artifacts/live_stock_data.csv"
-    if not os.path.exists(path):
-        return None
-    try:
-        df = pd.read_csv(path)
-        df_symbol = df[df["symbol"] == symbol.upper()]
-        if df_symbol.empty:
+        
+    def get_latest_price(self,symbol: str):
+        path = "artifacts/live_stock_data.csv"
+        if not os.path.exists(path):
             return None
-        latest = df_symbol.iloc[-1]
-        return {
-            "symbol": latest["symbol"],
-            "price": float(latest["price"]),
-            "timestamp": int(latest["timestamp"]),
-            "time": latest["datetime"]
-        }
-    except Exception as e:
-        return None
+        try:
+            df = pd.read_csv(path)
+            df_symbol = df[df["symbol"] == symbol.upper()]
+            if df_symbol.empty:
+                return None
+            latest = df_symbol.iloc[-1]
+            return {
+                "symbol": latest["symbol"],
+                "price": float(latest["price"]),
+                "timestamp": int(latest["timestamp"]),
+                "time": latest["datetime"]
+            }
+        except Exception as e:
+            raise CustomException(e,sys)
+        
+    async def twelve_data_stream(self):
+        try:
+            async with websockets.connect(self.ws_url) as ws:
+                await ws.send(json.dumps({
+                    "action": "subscribe",
+                    "params": {
+                        "symbols": "AAPL",  # Change to your stock
+                        "apikey": self.api_key
+                    }
+                }))
+                while True:
+                    data = await ws.recv()
+                    try:
+                        parsed = json.loads(data)
+                        if "price" in parsed:
+                            parsed["datetime"] = asyncio.get_event_loop().time()  # or use datetime.utcnow().isoformat()
+                            for client in active_connections:
+                                await client.send_json(parsed)
+                    except Exception as e:
+                        raise CustomException(e,sys)
+        except Exception as e:
+            raise CustomException(e,sys)

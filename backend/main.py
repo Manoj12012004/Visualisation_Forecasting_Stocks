@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.routers import retrain, train, predict,live_data
-from src.services import alpha_stream
+from src.services import live_stream
 from src.database.connection import Base, engine
 from src.services.retrain_service import auto_retrain
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -34,18 +34,9 @@ def get_stocks():
 app.include_router(train.router)
 app.include_router(predict.router)
 app.include_router(retrain.router)
-app.include_router(alpha_stream.router)
 app.include_router(live_data.router)
 
 @app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(alpha_stream.twelvedata_websocket_listener())
-
-import os
-port = int(os.environ.get("PORT", 8000))
-uvicorn.run(app, host="0.0.0.0", port=port)
-
-# # Background auto-retrain every 24 hours
-# scheduler = BackgroundScheduler()
-# scheduler.add_job(auto_retrain, 'interval', hours=24)
-# scheduler.start()
+def startup():
+    print("Creating database tables...")
+    Base.metadata.create_all(bind=engine)
