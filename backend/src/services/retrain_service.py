@@ -1,6 +1,6 @@
 from datetime import datetime
 from src.database.connection import SessionLocal
-from src.database.models import StockModel
+from src.database.models import Models
 from src.pipeline.train_pipeline import Train
 
 def auto_retrain():

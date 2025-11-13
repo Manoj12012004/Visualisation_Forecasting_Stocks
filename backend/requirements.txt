@@ -6,7 +6,7 @@ dill
 ta
 yfinance
 statsmodels
-tensorflow==2.15.0
+tensorflow
 matplotlib
 streamlit
 prophet

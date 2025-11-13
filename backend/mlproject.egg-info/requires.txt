@@ -12,3 +12,16 @@ streamlit
 prophet
 xgboost
 alpha_vantage
+twelvedata[pandas]
+requests
+websockets
+flask
+flask-cors
+fastapi
+sqlalchemy
+sqlalchemy-utils
+pydantic
+uvicorn
+pymysql
+apscheduler
+shap

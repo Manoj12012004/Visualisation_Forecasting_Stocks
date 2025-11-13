@@ -26,11 +26,14 @@ class DataIngestion:
     def save_to_csv(self):
         os.makedirs("artifacts", exist_ok=True)
         df = pd.DataFrame(self.data)
+        
         df.to_csv("artifacts/live_stock_data.csv", index=False)
         
     def fin_data_ingestion(self):
         response=requests.get(url=self.fin_api)
         data=pd.DataFrame(response.json())
+        data=data.sort_values('date').reset_index(drop=True)
+        print(data)
         return data
     
     async def connect_and_stream(self):
