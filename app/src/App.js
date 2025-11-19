@@ -1,19 +1,25 @@
-// App.js
 import React from 'react';
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
-import Forecast from './pages/Forecast';
+import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import DashboardPage from './pages/Dashboard';
-import StockDetailPage from './pages/StockDetail';
+import BacktestPage from './pages/Backtest';
+import StockDetail from './pages/StockDetail';
+import Portfolio from './pages/Portfolio';
+import { LearningProvider } from './context/LearningContext';
 
 function App() {
   return (
-    <Router>
-      <Routes>
-        <Route path="/" element={<DashboardPage />} />
-        <Route path="/:symbol" element={<StockDetailPage />} />
-        <Route path="/:symbol/forecast" element={<Forecast />} />
-      </Routes>
-    </Router>
+    <LearningProvider>
+      <Router>
+        <Routes>
+          <Route path="/" element={<DashboardPage />} />
+          <Route path="/stocks/:symbol" element={<StockDetail />} />
+          <Route path="/stocks" element={<Navigate to="/stocks/AAPL" replace />} />
+          <Route path="/portfolio" element={<Portfolio />} />
+          <Route path="/backtest" element={<BacktestPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Router>
+    </LearningProvider>
   );
 }
 

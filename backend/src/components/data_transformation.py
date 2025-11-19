@@ -1,210 +1,266 @@
-import pandas as pd
 import numpy as np
-from sklearn.preprocessing import MinMaxScaler,StandardScaler
-import ta.momentum
-from src.logger import logging
-import sys
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
 import ta
-from src.exception import CustomException
-from src.utils import scalar,save_object
-
+import math
 
 class DataTransformation:
-    def __init__(self, sequence_length=60):
+    def __init__(self, sequence_length=30, horizon=3, min_rows=300):
+        """
+        sequence_length: number of past days per sample
+        horizon: forward horizon in days for the target (3 in your original)
+        min_rows: minimum rows required to avoid too-short datasets
+        """
         self.sequence_length = sequence_length
-        self.scaler = scalar()
-        self.close_scaler=MinMaxScaler()
+        self.horizon = horizon
+        self.min_rows = min_rows
+
+        # scalers that you should fit on TRAIN only (see helper methods below)
+        self.indicator_scaler = None
+        self.target_scaler = None
+
+        # final feature lists (set after transform)
+        self.seq_features = [
+            "ret_1", "ret_3", "atr_pct", "volatility_10",
+            "vol_ratio", "RSI"
+        ]
+        self.indicator_features = [
+            "MACD", "MACD_Hist", "bb_pos", "z_close_50"
+        ]
+
+    def _build_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.sort_values("date").reset_index(drop=True).copy()
+
+        # Basic sanity
+        if len(df) < self.min_rows:
+            # Not an exception — sometimes you still want to work with small data,
+            # but warn user (we won't raise to keep pipeline usable).
+            print(f"Warning: dataset only has {len(df)} rows (<{self.min_rows}). Proceeding anyway.")
+
+        # ---------- TARGETS ----------
+        # log-return target over horizon (no percent, stationarity)
+        df["target_return"] = df["close"].shift(-self.horizon) / df["close"] - 1.0
+        thr = df["target_return"].rolling(200).std().fillna(method="bfill") * 0.5
+
+        df["target_direction"] = (
+            df["target_return"] > thr
+        ).astype(int)
         
+        # ---------- STATIONARY CORE ----------
+        # short / multi-day returns
+        df["ret_1"] = df["close"].pct_change(1)
+        df["ret_3"] = df["close"].pct_change(self.horizon)
 
-    def create_sequences(self, data):
-        X, y = [], []
-        for i in range(self.sequence_length, len(data)):
-            X.append(data[i-self.sequence_length:i])
-            y.append(data[i][0])
-        return np.array(X), np.array(y)
+        # rolling volatility (std of close)
+        df["volatility_10"] = df["close"].rolling(10).std()
 
-    def fin_data_transform(self, df):
-        try:
-            df=df.sort_index('date').reset_index(drop=True)
-            df["target_return"] = ((df["close"].shift(-5) / df["close"]) - 1) * 100
-            df["target_direction"] = (df["target_return"] > 0).astype(int)
+        # ATR and ATR percentage
+        df["ATR"] = ta.volatility.average_true_range(high=df["high"], low=df["low"], close=df["close"], window=14)
+        df["atr_pct"] = df["ATR"] / df["close"]
 
-            df['50ma'] = df['close'].rolling(50).mean()
-            df['200ma'] = df['close'].rolling(200).mean()
+        # Volume features: ratio to 20-day moving average
+        df["vol_ma_20"] = df["volume"].rolling(20).mean()
+        df["vol_ratio"] = df["volume"] / (df["vol_ma_20"] + 1e-9)
+        df["vol20"] = df["close"].rolling(20).std()
 
-            window = 14
-            delta = df["close"].diff()
-            gain = delta.where(delta > 0, 0)
-            loss = -delta.where(delta < 0, 0)
+        # z-score of price to capture deviation from medium-term mean
+        df["z_close_50"] = (df["close"] - df["close"].rolling(50).mean()) / (df["close"].rolling(50).std() + 1e-9)
 
-            avg_gain = gain.rolling(window).mean()
-            avg_loss = loss.rolling(window).mean()
+        # ---------- MOMENTUM INDICATORS ----------
+        df["RSI"] = ta.momentum.rsi(close=df["close"], window=14)
 
-            rs = avg_gain / avg_loss
-            df["RSI"] = 100 - (100 / (1 + rs))
+        ema_12 = df["close"].ewm(span=12, adjust=False).mean()
+        ema_26 = df["close"].ewm(span=26, adjust=False).mean()
+        df["MACD"] = ema_12 - ema_26
+        df["Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
+        df["MACD_Hist"] = df["MACD"] - df["Signal"]
 
-            ema_12 = df["close"].ewm(span=12, adjust=False).mean()
-            ema_26 = df["close"].ewm(span=26, adjust=False).mean()
-            df["MACD"] = ema_12 - ema_26
-            df["Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
-            df["MACD_Histogram"] = df["MACD"] - df["Signal"]
-            df["direction_persistence"] = (
-                (df["close"] > df["close"].shift(1)).rolling(5).sum()
-            )
-            bb_window = 20
-            df["BB_Middle"] = df["close"].rolling(bb_window).mean()
-            df["BB_STD"] = df["close"].rolling(bb_window).std()
-            df["BB_Upper"] = df["BB_Middle"] + (2 * df["BB_STD"])
-            df["BB_Lower"] = df["BB_Middle"] - (2 * df["BB_STD"])
+        # ---------- BOLLINGER: position only (standardized) ----------
+        bb_mid = df["close"].rolling(20).mean()
+        bb_std = df["close"].rolling(20).std()
+        df["bb_pos"] = (df["close"] - bb_mid) / (bb_std + 1e-9)
 
-            df["volume_ma_20"] = df["volume"].rolling(20).mean()
-            df["volume_spike"] = (df["volume"] > 1.5 * df["volume_ma_20"]).astype(int)
+        # Clean up columns that are intermediate-only
+        # (we keep ATR because atr_pct is used; but drop raw ATR to reduce columns if desired)
+        # We'll keep them – user can drop later.
 
-            df['golden_cross'] = ((df['50ma'] > df['200ma']) & (df['50ma'].shift(1) <= df['200ma'].shift(1))).astype(int)
-            df['death_cross'] = ((df['50ma'] < df['200ma']) & (df['50ma'].shift(1) >= df['200ma'].shift(1))).astype(int)
+        return df
 
-            df["ADX"] = ta.trend.adx(df["high"], df["low"], df["close"])
-            df["ATR"] = ta.volatility.average_true_range(df["high"], df["low"], df["close"])
-            df["momentum_10"] = df["close"].pct_change(10)
-            df["volatility_10"] = df["close"].rolling(10).std()
-            df["momentum_3"] = df["close"].pct_change(3)
-            df["momentum_5"] = df["close"].pct_change(5)
-            df["volatility_5"] = df["close"].rolling(5).std()
-            df["daily_range"] = (df["high"] - df["low"]) / df["close"]
-            df["gap"] = (df["open"] - df["close"].shift(1)) / df["close"].shift(1)
-            df["prev_day_return"] = df["target_return"].shift(1)
-            df["rolling_volatility_20"] = df["close"].rolling(20).std()
-            df["price_position_in_bb"] = (df["close"] - df["BB_Lower"]) / (df["BB_Upper"] - df["BB_Lower"])
-            df["macd_signal_ratio"] = df["MACD"] / (df["Signal"] + 1e-6)
-            df["rsi_slope"] = df["RSI"].diff()
-            df["atr_pct"] = df["ATR"] / df["close"]
-            df["adx_slope"] = df["ADX"].diff()
-            df["trend_strength"] = (df["close"] - df["200ma"]) / df["200ma"]
-            df["compression"] = (df["high"] - df["low"]) / df["close"]
-            df['sma_ratio'] = df['50ma'] / df['200ma']
+    def _check_feature_availability(self, df: pd.DataFrame):
+        needed = {"date", "open", "high", "low", "close", "volume"}
+        missing = needed - set(df.columns)
+        if missing:
+            raise ValueError(f"Input dataframe missing required columns: {missing}")
 
-            
-            df = df.dropna().reset_index(drop=True)
-            df['BB_Width'] = df["BB_Upper"] - df["BB_Lower"]
+    def fin_data_transform(self, df: pd.DataFrame):
+        """
+        Main entry. Returns:
+          X_seq: np.array (n_samples, sequence_length, n_seq_features) -- scaled per sample
+          X_ind: np.array (n_samples, n_indicator_features) -- NOT scaled here (fit on train)
+          y_return: np.array (n_samples,) raw log-target (scale on train if desired)
+          y_dir: np.array (n_samples,) 0/1
+          feature_info: dict with feature lists
+        """
+        self._check_feature_availability(df)
+        df = self._build_features(df)
 
-            seq_features = ['open', 'high', 'low', 'close', 'volume', '50ma', '200ma']
-            indicator_features = [
-                'RSI',
-                'MACD',
-                'BB_Width',
-                'ADX',
-                'volatility_10',
-                'momentum_10',
-                'gap',
-                'volume_ma_20',
-                'trend_strength',
-                'compression',
-                'sma_ratio'
-            ]
+        # drop NA rows produced by indicators
+        df = df.dropna().reset_index(drop=True)
 
+        if len(df) < (self.sequence_length + self.horizon):
+            raise ValueError("Not enough rows after feature creation to build sequences. Reduce sequence_length or collect more data.")
+        
+        df = df.iloc[:-self.horizon].reset_index(drop=True)
+        # Build sequences
+        X_seq_list, X_ind_list, y_return_list, y_dir_list,vol_list = [], [], [], [],[]
+        seq_len = self.sequence_length
 
-            sequence_length = 30
+        # Prepare arrays for indexing speed
+        seq_feats = self.seq_features
+        ind_feats = self.indicator_features
 
-            X_seq, X_ind, y_return, y_dir = [], [], [], []
+        for i in range(seq_len, len(df) - 0):  # last row corresponds to sample where label exists (we used shift(-horizon) earlier)
+            # current row is i
+            seq_slice = df.iloc[i - seq_len:i]  # historical window (no future)
+            ind_row = df.iloc[i]  # indicators at time i
+            target_return = df["target_return"].iloc[i]
+            target_dir = df["target_direction"].iloc[i]
+            vol20=df['vol20'].iloc[i]
 
-            for i in range(sequence_length, len(df)):
-                seq_data = df[seq_features].iloc[i-sequence_length:i].values
-                ind_data = df[indicator_features].iloc[i].values
-                t_return = df['target_return'].iloc[i]
-                t_dir = df['target_direction'].iloc[i]
+            # Basic sanity: a few NaNs can show up if windows are short; skip
+            if seq_slice[seq_feats].isna().any().any() or ind_row[ind_feats].isna().any() or pd.isna(target_return) or pd.isna(vol20):
+                continue
 
-                if np.isnan(seq_data).any() or np.isnan(ind_data).any() or pd.isna(t_return) or pd.isna(t_dir):
-                    continue
+            # Convert seq to numpy (shape: seq_len x n_feats)
+            seq_arr = seq_slice[seq_feats].values.astype(np.float32)
+            ind_arr = ind_row[ind_feats].values.astype(np.float32)
 
-                X_seq.append(seq_data)
-                X_ind.append(ind_data)
-                y_return.append(t_return)
-                y_dir.append(t_dir)
-
-            X_seq = np.array(X_seq)
-            X_ind = np.array(X_ind)
-            y_return = np.array(y_return)
-            y_dir = np.array(y_dir)
-
+            # Scale the sequence per-sample: fit a StandardScaler on the sequence itself (no leakage).
+            # This removes global distributional shifts while keeping temporal internal structure.
+            # NOTE: fitting per-sample is deliberate to avoid using any future info.
             scaler_seq = StandardScaler()
-            scaler_ind = StandardScaler()
-            scaler_y_return = StandardScaler()
+            seq_arr_scaled = scaler_seq.fit_transform(seq_arr)  # shape preserved
 
-            X_seq_flat = X_seq.reshape(-1, len(seq_features))
-            X_seq_scaled = scaler_seq.fit_transform(X_seq_flat).reshape(X_seq.shape)
-            X_ind_scaled = scaler_ind.fit_transform(X_ind)
-            y_return_scaled = scaler_y_return.fit_transform(y_return.reshape(-1, 1)).flatten()
-
-            return (
-                X_seq_scaled, X_ind_scaled, y_return_scaled, y_dir,
-                {"sequence": seq_features, "indicator": indicator_features},
-                scaler_y_return
-            )
-        except Exception as e:
-            raise CustomException(e, sys)
-
-    def initiate_data_transformation(self, data):
-        try:
-            data['SMA_20']=data['close'].rolling(window=20).mean()
-            data['SMA_50']=data['close'].rolling(window=50).mean()
-            delta = data['close'].diff()
-            gain = delta.where(delta > 0, 0)
-            loss = -delta.where(delta < 0, 0)
-            avg_gain = gain.rolling(window=14).mean()
-            avg_loss = loss.rolling(window=14).mean()
-            rs = avg_gain / avg_loss
-            data['RSI'] = 100 - (100 / (1 + rs))
-            ema_12=data['close'].ewm(span=12,adjust=False).mean()
-            ema_26=data['close'].ewm(span=26,adjust=False).mean()
-            data['MACD']=ema_12-ema_26
-            data['Signal']=data['MACD'].ewm(span=9,adjust=False).mean()
-            data['AvgVolume']=data['volume'].rolling(window=20).mean()
-            data=data.dropna()
-            # If datetime is index
-            data['dayofweek'] = data.index.dayofweek
-            data['month'] = data.index.month
-            data['day_sin'] = np.sin(2 * np.pi * data.index.dayofweek / 7)
-            data['day_cos'] = np.cos(2 * np.pi * data.index.dayofweek / 7)
-            data=data.reset_index()
-            features = ['close', 'RSI', 'MACD', 'Signal', 'SMA_20', 'SMA_50', 'volume']
-            technical_indicators = ['datetime','RSI', 'MACD', 'Signal', 'SMA_20', 'SMA_50']
-            tech_data=data[technical_indicators]
-            data=data[features]
-            scaled_data = self.scaler.fit_transform(data)
-            scaled_close=self.close_scaler.fit_transform(data[['close']])
-            save_object("artifacts/scaler/scaler.pkl", self.scaler)
-            save_object("artifacts/scaler/close_scalar.pkl",self.close_scaler)
-            X, y = self.create_sequences(scaled_data)
+            norm_target=target_return/(vol20+1e-9)
             
-            return X,y,tech_data,scaled_data,features
-        except Exception as e:
-            raise CustomException(e,sys)
-    
-    def get_heatmap_data(self, data):
-        heatmap_data = []
-        previous_close = None
+            X_seq_list.append(seq_arr_scaled)
+            X_ind_list.append(ind_arr)
+            y_return_list.append(norm_target)
+            y_dir_list.append(int(target_dir))
+            vol_list.append(vol20)
 
-        try:
-            for idx, row in data[::-1].iterrows():
-                close = float(row['close'])
-                volume = float(row['volume'])
-                date = idx.strftime('%Y-%m-%d')
+        if len(X_seq_list) == 0:
+            raise ValueError("No sequences could be built. Check data length / NaNs / sequence length.")
 
-                if previous_close is not None:
-                    percent_change = ((close - previous_close) / previous_close) * 100
-                else:
-                    percent_change = 0.0  # No previous day to compare with
+        y_return_arr = np.array(y_return_list, dtype=np.float32)
+        # EWMA smoothing (span=5) to stabilize target for regression training
+        y_return_series = pd.Series(y_return_arr).ewm(span=5).mean().values
+        # clip extremes to reduce influence of outliers
+        y_return_series = np.clip(y_return_series, -3.0, 3.0)
 
-                heatmap_data.append({
-                    'date': date,
-                    'percent_change': round(percent_change, 2),
-                    'close': close,
-                    'volume': volume
-                })
+        X_seq = np.stack(X_seq_list, axis=0)
+        X_ind = np.vstack(X_ind_list)
+        y_return = y_return_series.astype(np.float32) 
+        y_dir = np.array(y_dir_list, dtype=np.int8)
+        vol_array = np.array(vol_list, dtype=np.float32) 
 
-                previous_close = close  # Update for next iteration
+        feature_info = {"sequence": seq_feats, "indicator": ind_feats}
 
-            return heatmap_data
+        return X_seq, X_ind, y_return, y_dir, feature_info,vol_array
 
-        except Exception as e:
-            raise CustomException(e,sys)
+    # ------------------------ Utilities for training-time scaling ------------------------
+    def fit_train_scalers(self, X_ind_train: np.ndarray, y_train: np.ndarray):
+        """
+        Fit scalers that MUST be fit only on TRAIN data.
+        - indicator_scaler: fits on indicator matrix (2D)
+        - target_scaler: fits on y_train if you want to scale regression targets
+        Save to self.*
+        """
+        if X_ind_train is None or y_train is None:
+            raise ValueError("Provide X_ind_train and y_train to fit train scalers.")
+
+        self.indicator_scaler = StandardScaler()
+        self.indicator_scaler.fit(X_ind_train)
+
+        self.target_scaler = StandardScaler()
+        self.target_scaler.fit(y_train.reshape(-1, 1))
+
+        return self.indicator_scaler, self.target_scaler
+
+    def apply_train_scalers(self, X_ind: np.ndarray, y: np.ndarray):
+        """
+        Apply fitted scalers to indicator and target arrays.
+        Must call fit_train_scalers ON TRAIN before calling this on train/val/test.
+        """
+        if self.indicator_scaler is None or self.target_scaler is None:
+            raise ValueError("Indicator/target scalers not fitted. Call fit_train_scalers() first (on training data).")
+
+        X_ind_scaled = self.indicator_scaler.transform(X_ind)
+        y_scaled = self.target_scaler.transform(y.reshape(-1, 1)).flatten()
+        return X_ind_scaled, y_scaled
+
+    # ------------------------ Helper: train/test split for sequences ------------------------
+    @staticmethod
+    def time_series_train_test_split(X_seq, X_ind, y_return, y_dir, train_frac=0.8):
+        """
+        Simple chronological split: first train_frac of samples -> train, rest -> test.
+        Returns train/test tuples.
+        """
+        n = X_seq.shape[0]
+        split = int(n * train_frac)
+        return (
+            X_seq[:split], X_ind[:split], y_return[:split], y_dir[:split],
+            X_seq[split:], X_ind[split:], y_return[split:], y_dir[split:]
+        )
+
+    # ------------------------ Technical view for API ------------------------
+    def technical_view(
+        self,
+        df: pd.DataFrame,
+        sma_window: int = 20,
+        ema_window: int = 20,
+        bb_window: int = 20,
+        rsi_window: int = 14,
+        macd_fast: int = 12,
+        macd_slow: int = 26,
+        macd_signal: int = 9,
+        bb_k: float = 2.0,
+    ) -> pd.DataFrame:
+        """
+        Build a UI-friendly technical indicators dataframe using this transformer.
+        Returns a dataframe with columns:
+         [date, open, high, low, close, volume,
+          sma, ema, rsi, macd, macd_signal, macd_hist,
+          bb_mid, bb_upper, bb_lower]
+        """
+        self._check_feature_availability(df)
+        df = df.sort_values("date").reset_index(drop=True).copy()
+
+        # SMA/EMA
+        df["sma"] = df["close"].rolling(int(max(1, sma_window))).mean()
+        df["ema"] = df["close"].ewm(span=int(max(1, ema_window)), adjust=False).mean()
+
+        # RSI
+        df["rsi"] = ta.momentum.rsi(close=df["close"], window=int(max(2, rsi_window)))
+
+        # MACD
+        ema_f = df["close"].ewm(span=int(max(2, macd_fast)), adjust=False).mean()
+        ema_s = df["close"].ewm(span=int(max(2, macd_slow)), adjust=False).mean()
+        df["macd"] = ema_f - ema_s
+        df["macd_signal"] = df["macd"].ewm(span=int(max(2, macd_signal)), adjust=False).mean()
+        df["macd_hist"] = df["macd"] - df["macd_signal"]
+
+        # Bollinger Bands
+        bb_mid = df["close"].rolling(int(max(1, bb_window))).mean()
+        bb_std = df["close"].rolling(int(max(1, bb_window))).std()
+        df["bb_mid"] = bb_mid
+        df["bb_upper"] = bb_mid + float(bb_k) * bb_std
+        df["bb_lower"] = bb_mid - float(bb_k) * bb_std
+
+        # Keep only the fields needed for UI
+        keep = [c for c in [
+            "date", "open", "high", "low", "close", "volume",
+            "sma", "ema", "rsi", "macd", "macd_signal", "macd_hist",
+            "bb_mid", "bb_upper", "bb_lower"
+        ] if c in df.columns]
+        return df[keep]

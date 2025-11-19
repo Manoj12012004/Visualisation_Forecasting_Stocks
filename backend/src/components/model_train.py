@@ -84,7 +84,6 @@ class Model_Trainer:
                 EarlyStopping(patience=5, restore_best_weights=True),
                 ReduceLROnPlateau(patience=3, factor=0.5, min_lr=1e-6)
             ]
-        seq_input=Input(shape=(20,5))
         timesteps = X_seq.shape[1]
         n_seq_feats = X_seq.shape[2]
         ind_dim = X_ind.shape[1]
@@ -213,6 +212,7 @@ class Model_Trainer:
             }
         except Exception as e:
             raise CustomException(e,sys)
+
     def train_cnn_hybrid(self, stock_symbol, X_seq, X_ind, y_return_scaled, y_dir, features, scaler_y):
         try:
             train_size = int(len(X_seq) * 0.8)

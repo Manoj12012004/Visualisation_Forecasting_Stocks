@@ -1,13 +1,11 @@
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
-}
+/* Base overrides */
+body { @apply antialiased bg-gray-50; }
+code { @apply font-mono text-sm; }
+
+/* Custom card utilities (used via classNames) */
+.card-base { @apply bg-white p-4 rounded shadow relative transition hover:shadow-md; }
+.card-title { @apply font-semibold text-xs tracking-wide uppercase text-slate-700; }

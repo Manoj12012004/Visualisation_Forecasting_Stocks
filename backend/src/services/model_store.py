@@ -8,7 +8,7 @@ import sys
 from keras.models import load_model
 
 
-def save_model_to_db(session:Session,stock_symbol,accuracy,direction_model_path,return_model_path,scaler_path,precision,recall,rmse,r2_score):
+def save_model_to_db(session:Session,stock_symbol,accuracy,direction_model_path,return_model_path,ind_scaler_path,target_scaler_path,rmse):
     try:
         
         existing=session.query(Models).filter(Models.stock_symbol==stock_symbol).first()
@@ -19,12 +19,10 @@ def save_model_to_db(session:Session,stock_symbol,accuracy,direction_model_path,
             stock_symbol=stock_symbol,
             direction_model_path=direction_model_path,
             return_model_path=return_model_path,
-            scaler_path=scaler_path,
+            ind_scaler_path=ind_scaler_path,
+            target_scaler_path=target_scaler_path,
             accuracy=accuracy,
-            precision=precision,
-            recall=recall,
-            rmse=rmse,
-            r2_score=r2_score,                      
+            rmse=rmse             
         )
         session.add(stock_model)
         session.commit()
@@ -38,17 +36,14 @@ def load_model_from_db(session: Session, stock_symbol: str):
         return record
     return None
 
-
 def save_predictions(session:Session,stock_symbol,prediction_time,predicted_return,predicted_direction,signal,confidence,explaination):
     try:
         prediction=Predictions(
             stock_symbol=stock_symbol,
             prediction_time=prediction_time,
             predicted_return=predicted_return,
-            predicted_direction=predicted_direction,
             signal=signal,
             confidence=confidence,
-            explaination=explaination
         )
         session.add(prediction)
         session.commit()

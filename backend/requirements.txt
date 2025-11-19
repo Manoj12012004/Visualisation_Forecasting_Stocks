@@ -11,6 +11,7 @@ matplotlib
 streamlit
 prophet
 xgboost
+lightgbm
 alpha_vantage
 twelvedata[pandas]
 requests
@@ -25,4 +26,5 @@ uvicorn
 pymysql
 apscheduler
 shap
+openai
 

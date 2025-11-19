@@ -16,12 +16,10 @@ class Models(Base):
     stock_symbol=Column(String(10),nullable=False)
     direction_model_path=Column(String(255),nullable=True)
     return_model_path=Column(String(255),nullable=True)
-    scaler_path=Column(String(255),nullable=True)
+    ind_scaler_path=Column(String(255),nullable=True)
+    target_scaler_path=Column(String(255),nullable=True)
     accuracy=Column(Float,nullable=True)
-    precision=Column(Float,nullable=True)
-    recall=Column(Float,nullable=True)
     rmse=Column(Float,nullable=True)
-    r2_score=Column(Float,nullable=True)
     created_at=Column(DateTime,default=datetime.utcnow)
     
     
@@ -31,10 +29,12 @@ class Predictions(Base):
     stock_symbol=Column(String(10),nullable=False)
     prediction_time=Column(DateTime,default=datetime.utcnow)
     predicted_return=Column(Float,nullable=False)
-    predicted_direction=Column(Integer,nullable=False)  # 1 for up, 0
-    signal=Column(Enum('buy','sell','hold'),nullable=False)
+    signal=Column(String(10),nullable=False)
     confidence=Column(Float,nullable=True)
-    explaination=Column(JSON,nullable=True)
+    realized_return = Column(Float, nullable=True)
+    realized_price = Column(Float, nullable=True)
+    actual_direction = Column(Integer, nullable=True)  # 1 up, 0 down
+    direction_correct = Column(Integer, nullable=True)
     
 class Education(Base):
     __tablename__='education'

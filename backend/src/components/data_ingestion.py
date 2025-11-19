@@ -9,7 +9,6 @@ from datetime import datetime
 from src.logger import logging
 from src.exception import CustomException
 from twelvedata import TDClient
-from src.services.live_stream import active_connections
 import requests
 
 
@@ -23,9 +22,9 @@ class DataIngestion:
         self.last_timestamp = None
         
         
-    def save_to_csv(self):
+    def save_to_csv(self,data):
         os.makedirs("artifacts", exist_ok=True)
-        df = pd.DataFrame(self.data)
+        df = pd.DataFrame(data)
         
         df.to_csv("artifacts/live_stock_data.csv", index=False)
         
@@ -34,165 +33,39 @@ class DataIngestion:
         data=pd.DataFrame(response.json())
         data=data.sort_values('date').reset_index(drop=True)
         print(data)
+        self.save_to_csv(data)
         return data
     
-    async def connect_and_stream(self):
-        for attempt in range(3):
-            try:
-                async with websockets.connect(self.ws_url,open_timeout=10) as ws:
-                    await ws.send(json.dumps({
-                        "action": "subscribe",
-                        "params": {"symbols": self.stock_symbol}
-                    }))
-                    
-                    while True:
-                        try:
-                            message = await ws.recv()
-                            d = json.loads(message)
-                            if d.get("event") != "price":
-                                continue
-                            timestamp = int(d.get("timestamp"))
-                            dt_str = datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
 
-                            entry = {
-                                "timestamp": timestamp,
-                                "datetime": dt_str,
-                                "symbol": d.get("symbol"),
-                                "price": float(d.get("price"))
-                            }
-                            # Broadcast to frontend clients
-                            for conn in active_connections:
-                                await conn.send_json(entry)
+    def get_latest_candle(symbol: str):
+        """
+        Returns the most recent 1-minute candle from Yahoo Finance.
+        Output:
+        {
+            "date": "...",
+            "open": float,
+            "high": float,
+            "low": float,
+            "close": float,
+            "volume": float
+        }
+        """
 
-                            if timestamp != self.last_timestamp:
-                                self.last_timestamp = timestamp
-                                self.data.append(entry)
-                                self.save_to_csv()
+        ticker = yf.Ticker(symbol)
 
-                        except Exception as e:
-                            break
-            except asyncio.TimeoutError as e:
-                await asyncio.sleep(3)
-                raise CustomException(e,sys)
-                
-    async def initiate_live_ingestion(self):
-        await self.connect_and_stream()
-        
-    def fetch_current_price(self):
-        try:
-            td=TDClient(apikey=self.api_key)
-            params={
-                "symbol":self.stock_symbol,
-                "outputsize":5000,
-            }
-            df=td.time_series(**params).as_pandas()
-            return df
-        except Exception as e:
-            raise CustomException(e,sys)
-        
-    def initiate_data_ingestion(self,interval, start=None, end=None):
-        try:
-            td=TDClient(apikey=self.api_key)
-            params={
-                "symbol": self.stock_symbol,
-                "outputsize": 500,
-                "interval": interval
-            }
-            if start:
-                params["start_date"] = start
-            if end:
-                params["end_date"] = end
-            df = td.time_series(**params).as_pandas()
-            return df
-        except Exception as e:
-            raise CustomException(e, sys)
-        
-    
-    def get_stock_info(self):
-        try:
-            td=TDClient(apikey=self.api_key)
-            stock=td.quote(symbol=self.stock_symbol).as_json()
-            return stock
-        except Exception as e:
-            raise CustomException(e, sys)
-        
-    def get_market_movers(self):
-        try:
-            td=TDClient(apikey=self.api_key)
-            all_stocks=td.get_stocks_list().as_json()
-            top_stocks=[item['symbol'] for item in all_stocks[:100]]
-            results=[]
-            for stock in top_stocks:
-                df = td.time_series(symbol=self.stock_symbol, outputsize=1, interval='1day').as_pandas()
-                if 'values' in df and len(df['values'])>0:
-                    latest=data['values'][0]
-                    volume=float(latest['volume'])
-                    price=float(latest['close'])
-                    results.append({
-                        "symbol": stock,
-                        "price": price,
-                        "volume": volume
-                    })
-            for stock in top_stocks:
-                ts=td.time_series(symbol=stock, outputsize=1, interval='1d').as_pandas()
-                vals=ts.get('values',[])
-                if len(vals)>0:
-                    current=float(vals[0]['close'])
-                    previous=float(vals[1]['close'])
-                    pct_change=((current-previous)/previous)*100
-                    results.append({
-                        "symbol": stock,
-                        "pct_change": pct_change,
-                        'volume':float(vals[0]['volume']),
-                        'price':current
-                    })
-            results_sorted=sorted(results,key=lambda x: x['pct_change'],reverse=True)
-            top_gainers=results_sorted[:10]
-            top_losers=results_sorted[-10:]
-            most_active=sorted(results,key=lambda x: x['volume'],reverse=True)[:10]
-            trending=sorted(results,key=lambda x: x['price'],reverse=True)[:10]
-            return top_gainers, top_losers, most_active, trending
-        except Exception as e:
-            raise CustomException(e, sys)
-        
-    def get_latest_price(self,symbol: str):
-        path = "artifacts/live_stock_data.csv"
-        if not os.path.exists(path):
-            return None
-        try:
-            df = pd.read_csv(path)
-            df_symbol = df[df["symbol"] == symbol.upper()]
-            if df_symbol.empty:
-                return None
-            latest = df_symbol.iloc[-1]
-            return {
-                "symbol": latest["symbol"],
-                "price": float(latest["price"]),
-                "timestamp": int(latest["timestamp"]),
-                "time": latest["datetime"]
-            }
-        except Exception as e:
-            raise CustomException(e,sys)
-        
-    async def twelve_data_stream(self):
-        try:
-            async with websockets.connect(self.ws_url) as ws:
-                await ws.send(json.dumps({
-                    "action": "subscribe",
-                    "params": {
-                        "symbols": "AAPL",  # Change to your stock
-                        "apikey": self.api_key
-                    }
-                }))
-                while True:
-                    data = await ws.recv()
-                    try:
-                        parsed = json.loads(data)
-                        if "price" in parsed:
-                            parsed["datetime"] = asyncio.get_event_loop().time()  # or use datetime.utcnow().isoformat()
-                            for client in active_connections:
-                                await client.send_json(parsed)
-                    except Exception as e:
-                        raise CustomException(e,sys)
-        except Exception as e:
-            raise CustomException(e,sys)
+        # Fetch the last 5 minutes (safer than 1 minute — Yahoo sometimes delays)
+        data = yf.download(symbol, period="1d", interval="1m").tail(1)
+
+        if data.empty:
+            raise ValueError(f"No data returned by Yahoo Finance for symbol: {symbol}")
+
+        last = data.iloc[-1]
+
+        return {
+            "date": last.name.strftime("%Y-%m-%d %H:%M:%S"),
+            "open": float(last["Open"]),
+            "high": float(last["High"]),
+            "low": float(last["Low"]),
+            "close": float(last["Close"]),
+            "volume": float(last["Volume"])
+        }
