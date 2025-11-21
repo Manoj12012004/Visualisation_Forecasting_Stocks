@@ -1,3 +1,0 @@
-[2025-11-15 20:13:36,382] 185 yfinance - ERROR - 
-1 Failed download:
-[2025-11-15 20:13:36,383] 198 yfinance - ERROR - ['AAPL']: Timeout('Failed to perform, curl: (28) Connection timed out after 10012 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')

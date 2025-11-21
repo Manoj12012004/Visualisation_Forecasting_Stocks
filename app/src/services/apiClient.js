@@ -63,11 +63,6 @@ export async function forecastNext(symbol, days = 1) {
   return data;
 }
 
-export async function forecastCone(symbol, { days = 7, confidence = 0.9 } = {}) {
-  const { data } = await api.get('/forecast/cone', { params: { symbol, days, confidence } });
-  return data; // { symbol, days, confidence, path: [{ date, predicted_price, lower, upper }] }
-}
-
 // ---------------- Data ----------------
 export async function fetchRawData(symbol, limit = 200) {
   const { data } = await api.get('/data/raw', { params: { symbol, limit } });
@@ -78,7 +73,18 @@ export async function fetchRawData(symbol, limit = 200) {
 
 // ---------------- Technical Indicators ----------------
 export async function fetchTechnicalIndicators(symbol, options = {}) {
-  const params = { symbol, ...(options || {}) };
+  // Only pass supported params to avoid backend errors
+  const allow = new Set(['symbol','limit','sma_window','ema_window','bb_window','rsi_window','macd_fast','macd_slow','macd_signal','bb_k']);
+  const params = { symbol };
+  for (const [k,v] of Object.entries(options || {})) {
+    if (allow.has(k)) params[k] = v;
+  }
   const { data } = await api.get('/data/technical', { params });
-  return data; // { symbol, items: [{ date, open, high, low, close, volume, sma, ema, rsi, macd, macd_signal, macd_hist, bb_mid, bb_upper, bb_lower }] }
+  return data; // expected { symbol, items: [...] }
+}
+
+export async function forecastCone(symbol, opts = {}) {
+  const params = { symbol, ...(opts || {}) };
+  const { data } = await api.get('/data/forecast_cone', { params });
+  return data; // expected { path: [...] } or similar
 }

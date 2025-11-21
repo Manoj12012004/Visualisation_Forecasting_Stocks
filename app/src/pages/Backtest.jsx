@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import Layout from '../components/core/layout';
 import SymbolSearch from '../components/core/SymbolSearch';
 import MetricCard from '../components/core/MetricCard';
-import AIExplainBlock from '../components/learning/AIExplainBlock';
 import { backtestSimple } from '../services/apiClient';
 
 export default function BacktestPage() {
@@ -67,9 +66,6 @@ export default function BacktestPage() {
               <MetricCard label="Max Drawdown" value={<span className="text-rose-700">{`${(result.drawdown_max*100).toFixed(1)}%`}</span>} explKey="risk_management" />
             )}
           </div>
-
-          <AIExplainBlock topic="backtesting" />
-          <AIExplainBlock topic="risk_management" />
         </>
       )}
     </Layout>

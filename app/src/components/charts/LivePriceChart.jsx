@@ -10,9 +10,9 @@ export default function LivePriceChart({ symbol, height = 260 }) {
   const [lastPrice, setLastPrice] = useState(null);
 
   // Build websocket URL from env base
-  const base = process.env.NEXT_PUBLIC_API_BASE || process.env.REACT_APP_API_BASE || '';
-  // Backend currently exposes /ws/price/{symbol}
-  const wsUrl = base.replace(/^http/, 'ws') + `/ws/price/${symbol}`;
+  const origin = (process.env.NEXT_PUBLIC_API_BASE || process.env.REACT_APP_API_BASE || window.location.origin || '').trim();
+  // Backend exposes /ws/price/{symbol}; fallback to current origin if env not provided
+  const wsUrl = origin.replace(/^http/, 'ws') + `/ws/price/${symbol}`;
 
   useWebsocket(wsUrl, {
     onMessage: (msg) => {

@@ -1,0 +1,16 @@
+.tv-tooltip {
+  position: absolute;
+  top: 28px; /* below range buttons */
+  z-index: 10;
+  background: rgba(30,41,59,0.9);
+  color: #f8fafc;
+  font-size: 11px;
+  line-height: 1.25;
+  padding: 6px 8px;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  pointer-events: none;
+  min-width: 130px;
+}
+.tv-tooltip-row { display: flex; justify-content: space-between; gap: 6px; }
+.tv-tooltip-row strong { font-weight:600; }

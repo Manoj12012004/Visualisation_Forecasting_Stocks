@@ -4,22 +4,22 @@ import DashboardPage from './pages/Dashboard';
 import BacktestPage from './pages/Backtest';
 import StockDetail from './pages/StockDetail';
 import Portfolio from './pages/Portfolio';
-import { LearningProvider } from './context/LearningContext';
+import RealtimePage from './pages/Realtime';
+ 
 
 function App() {
   return (
-    <LearningProvider>
-      <Router>
-        <Routes>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/stocks/:symbol" element={<StockDetail />} />
-          <Route path="/stocks" element={<Navigate to="/stocks/AAPL" replace />} />
-          <Route path="/portfolio" element={<Portfolio />} />
-          <Route path="/backtest" element={<BacktestPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Router>
-    </LearningProvider>
+    <Router>
+      <Routes>
+        <Route path="/" element={<DashboardPage />} />
+        <Route path="/stocks/:symbol" element={<StockDetail />} />
+        <Route path="/stocks" element={<Navigate to="/stocks/AAPL" replace />} />
+        <Route path="/portfolio" element={<Portfolio />} />
+        <Route path="/backtest" element={<BacktestPage />} />
+        <Route path="/realtime" element={<RealtimePage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Router>
   );
 }
 

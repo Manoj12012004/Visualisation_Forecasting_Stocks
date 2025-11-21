@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '../components/core/layout';
-import CandleChart from '../components/charts/CandleChart';
+import CandlestickChart from '../components/charts/CandlestickChart';
 import PredictionHistoryChart from '../components/charts/PredictionHistoryChart';
 import { useParams } from 'react-router-dom';
 import { forecastNext, forecastCone } from '../services/apiClient';
@@ -14,15 +14,16 @@ export default function StockDetail() {
     <Layout>
       <div className="grid lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 bg-white rounded border p-3">
-          <div className="font-semibold mb-2">{symbol} — Candlestick</div>
-          <CandleChart symbol={symbol} />
+          <div className="font-semibold mb-2">{symbol} — Live Price & Candlestick</div>
+          <CandlestickChart symbol={symbol} live enableControls />
+        </div>
+        <div className="bg-white rounded border p-3">
+          <div className="font-semibold mb-2">Analysis</div>
+          <CrystalBall symbol={symbol} />
           <div className="mt-4">
             <div className="font-semibold mb-2">Historical Accuracy (last 30)</div>
             <PredictionHistoryChart symbol={symbol} />
           </div>
-        </div>
-        <div className="bg-white rounded border p-3">
-          <CrystalBall symbol={symbol} />
         </div>
       </div>
     </Layout>

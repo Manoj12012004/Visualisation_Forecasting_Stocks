@@ -1,5 +1,6 @@
+// src/components/CandleChart.jsx
 import React from 'react';
-import CandlestickChart from '../charts/CandlestickChart.jsx';
+import CandlestickChart from '../charts/CandlestickChart';
 
 export default function CandleChart({ symbol }) {
   return (

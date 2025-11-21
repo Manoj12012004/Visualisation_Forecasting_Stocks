@@ -16,7 +16,7 @@ class DataIngestion:
     def __init__(self, stock_symbol="AAPL"):
         self.stock_symbol = stock_symbol.upper()
         self.api_key = "6a7c4a11380c48c0a644dd1cd06f2702"
-        self.fin_api=f"https://financialmodelingprep.com/stable/historical-price-eod/full?symbol={self.stock_symbol}&apikey=6jOSYrWTaOpAwmkxYBIwAHQoSszIUx4G"
+        self.fin_api=f"https://financialmodelingprep.com/stable/historical-price-eod/full?symbol={self.stock_symbol}&apikey=IGGm8FEoum4A8ffKfCTsHvrjW8XCR5rL"
         self.ws_url = f"wss://ws.twelvedata.com/v1/quotes/price?apikey={self.api_key}"
         self.data = []
         self.last_timestamp = None
@@ -29,13 +29,14 @@ class DataIngestion:
         df.to_csv("artifacts/live_stock_data.csv", index=False)
         
     def fin_data_ingestion(self):
-        response=requests.get(url=self.fin_api)
-        data=pd.DataFrame(response.json())
-        data=data.sort_values('date').reset_index(drop=True)
-        print(data)
-        self.save_to_csv(data)
-        return data
-    
+        try:
+            response=requests.get(url=self.fin_api)
+            data=pd.DataFrame(response.json())
+            data=data.sort_values('date').reset_index(drop=True)
+            self.save_to_csv(data)
+            return data
+        except Exception as e:
+            raise CustomException(e, sys)
 
     def get_latest_candle(symbol: str):
         """

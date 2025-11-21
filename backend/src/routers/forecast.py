@@ -6,7 +6,7 @@ import math
 from src.realtime_engine.predict import load_for_inference, get_closed_candles
 from src.components.data_ingestion import DataIngestion
 
-router = APIRouter()
+router = APIRouter(prefix="/forecast", tags=["forecast"])
 
 
 @router.get("/next")
