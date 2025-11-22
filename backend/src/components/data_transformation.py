@@ -38,13 +38,7 @@ class DataTransformation:
             print(f"Warning: dataset only has {len(df)} rows (<{self.min_rows}). Proceeding anyway.")
 
         # ---------- TARGETS ----------
-        # log-return target over horizon (no percent, stationarity)
-        df["target_return"] = df["close"].shift(-self.horizon) / df["close"] - 1.0
-        thr = df["target_return"].rolling(200).std().fillna(method="bfill") * 0.5
-
-        df["target_direction"] = (
-            df["target_return"] > thr
-        ).astype(int)
+        # Targets are calculated in fin_data_transform to handle inference mode correctly
         
         # ---------- STATIONARY CORE ----------
         # short / multi-day returns
@@ -92,7 +86,7 @@ class DataTransformation:
         if missing:
             raise ValueError(f"Input dataframe missing required columns: {missing}")
 
-    def fin_data_transform(self, df: pd.DataFrame):
+    def fin_data_transform(self, df: pd.DataFrame, inference: bool = False):
         """
         Main entry. Returns:
           X_seq: np.array (n_samples, sequence_length, n_seq_features) -- scaled per sample
@@ -104,13 +98,25 @@ class DataTransformation:
         self._check_feature_availability(df)
         df = self._build_features(df)
 
+        # ---------- TARGETS ----------
+        if not inference:
+            # log-return target over horizon (no percent, stationarity)
+            df["target_return"] = df["close"].shift(-self.horizon) / df["close"] - 1.0
+            thr = df["target_return"].rolling(200).std().bfill() * 0.5
+            df["target_direction"] = (df["target_return"] > thr).astype(int)
+        else:
+            # For inference, we don't have future data. Fill with dummy.
+            df["target_return"] = 0.0
+            df["target_direction"] = 0
+
         # drop NA rows produced by indicators
         df = df.dropna().reset_index(drop=True)
 
         if len(df) < (self.sequence_length + self.horizon):
-            raise ValueError("Not enough rows after feature creation to build sequences. Reduce sequence_length or collect more data.")
-        
-        df = df.iloc[:-self.horizon].reset_index(drop=True)
+            # If inference, we might be lenient, but generally we need enough data for sequence
+            if not inference:
+                raise ValueError("Not enough rows after feature creation to build sequences. Reduce sequence_length or collect more data.")
+            
         # Build sequences
         X_seq_list, X_ind_list, y_return_list, y_dir_list,vol_list = [], [], [], [],[]
         date_list, price_list = [], []

@@ -22,10 +22,10 @@ export default function ForecastPage() {
     async function loadNext() {
       try {
         const res = await forecastNext(symbol, 7);
-        if (!cancelled && res?.path) {
-          setForecastPath(res.path);
-          if (res.path.length > 0) {
-            setNextPred(res.path[0]);
+        if (!cancelled && res?.forecast) {
+          setForecastPath(res.forecast);
+          if (res.forecast.length > 0) {
+            setNextPred(res.forecast[0]);
           }
         }
         

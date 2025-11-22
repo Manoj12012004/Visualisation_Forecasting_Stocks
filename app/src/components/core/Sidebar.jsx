@@ -10,7 +10,6 @@ export default function Sidebar() {
         { href: '/forecast/AAPL', label: 'Forecast & Train', icon: <FaFlask /> },
         { href: '/portfolio', label: 'Portfolio', icon: <FaWallet /> },
         { href: '/backtest', label: 'Backtest Lab', icon: <FaFlask /> },
-        { href: '/realtime', label: 'Realtime', icon: <FaChartLine /> },
     ];
 
     return (

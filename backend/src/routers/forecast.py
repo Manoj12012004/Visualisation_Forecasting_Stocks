@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from datetime import timedelta
 import numpy as np
 import math
+import pandas as pd
 
 from src.realtime_engine.predict import load_for_inference, get_closed_candles
 from src.components.data_ingestion import DataIngestion
@@ -9,11 +10,13 @@ from src.components.data_ingestion import DataIngestion
 router = APIRouter(prefix="/forecast", tags=["forecast"])
 
 
+import traceback
+
 @router.get("/next")
 def forecast_next(symbol: str, days: int = 1):
     """
     Naive multi-step forecast using existing single-step models in an autoregressive manner.
-    Inputs are held constant (last available sequence/indicators); output returns are compounded.
+    Inputs are updated each step by appending the predicted price to the history and re-calculating features.
     """
     try:
         days = int(max(1, min(days, 14)))
@@ -21,25 +24,45 @@ def forecast_next(symbol: str, days: int = 1):
         df_raw = DataIngestion(symbol).fin_data_ingestion()
         df = get_closed_candles(df_raw)
 
-        X_seq, X_ind, y_ret, y_dir, feat, vol_array, dates, prices = artifacts["transformer"].fin_data_transform(df)
+        # Initial Transform
+        X_seq, X_ind, y_ret, y_dir, feat, vol_array, dates, prices = artifacts["transformer"].fin_data_transform(df, inference=True)
         Xs = X_seq[-1:].astype("float32")
         Xi = X_ind[-1:].astype("float32")
         Xi = artifacts["ind_scaler"].transform(Xi)
         vol20 = float(vol_array[-1])
 
         last_price = float(df.iloc[-1]["close"])
-        start_date = df.iloc[-1]["date"] if "date" in df.columns else None
+        # Ensure start_date is a Timestamp
+        if "date" in df.columns:
+            start_date = pd.to_datetime(df.iloc[-1]["date"])
+        else:
+            # Fallback if date column is missing (unlikely with DataIngestion)
+            start_date = pd.Timestamp.now()
 
         path = []
         cur_price = last_price
-        cur_date = None
+        cur_date = start_date
+        
+        # Working copy for autoregression
+        df_curr = df.copy()
+
         for i in range(days):
-            p = float(artifacts["direction"].predict([Xs, Xi], verbose=0)[0][0])
-            ret_scaled = float(artifacts["return"].predict([Xs, Xi], verbose=0)[0][0])
-            ret = artifacts["target_scaler"].inverse_transform([[ret_scaled]])[0][0]
+            # 1. Predict
+            # Use .item() to avoid DeprecationWarning for single-element arrays
+            p = artifacts["direction"].predict([Xs, Xi], verbose=0)[0][0].item()
+            ret_scaled = artifacts["return"].predict([Xs, Xi], verbose=0)[0][0].item()
+            ret = artifacts["target_scaler"].inverse_transform([[ret_scaled]])[0][0].item()
             pred_return = float(ret * (vol20 + 1e-9))
+            
+            # Update price
             cur_price = cur_price * (1 + pred_return)
-            cur_date = (start_date + timedelta(days=i+1)) if start_date is not None else None
+            
+            # Update date (skip weekends)
+            if cur_date is not None:
+                cur_date = cur_date + timedelta(days=1)
+                while cur_date.weekday() >= 5:  # 5=Saturday, 6=Sunday
+                    cur_date = cur_date + timedelta(days=1)
+            
             path.append({
                 "step": i + 1,
                 "date": cur_date.isoformat() if cur_date is not None else None,
@@ -47,14 +70,32 @@ def forecast_next(symbol: str, days: int = 1):
                 "predicted_return": pred_return,
                 "predicted_price": cur_price,
             })
+            
+            # 2. Update State (Autoregression)
+            # Append predicted candle to history to recalculate indicators for next step
+            last_vol = df_curr.iloc[-1]["volume"]
+            new_row = pd.DataFrame([{
+                "date": cur_date,
+                "open": cur_price,
+                "high": cur_price,
+                "low": cur_price,
+                "close": cur_price,
+                "volume": last_vol
+            }])
+            df_curr = pd.concat([df_curr, new_row], ignore_index=True)
+            
+            # Re-transform
+            X_seq_next, X_ind_next, _, _, _, vol_array_next, _, _ = artifacts["transformer"].fin_data_transform(df_curr, inference=True)
+            
+            Xs = X_seq_next[-1:].astype("float32")
+            Xi = X_ind_next[-1:].astype("float32")
+            Xi = artifacts["ind_scaler"].transform(Xi)
+            vol20 = float(vol_array_next[-1])
 
-        return {
-            "symbol": symbol.upper(),
-            "last_price": last_price,
-            "start_date": start_date.isoformat() if start_date is not None else None,
-            "days": days,
-            "path": path
-        }
+        return {"symbol": symbol, "forecast": path}
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"{str(e)}\n{traceback.format_exc()}")
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

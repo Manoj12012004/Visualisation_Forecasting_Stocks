@@ -1,11 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import Layout from '../components/core/layout';
-import CandleChart from '../components/Charts/CandleChart';
+import CandleChart from '../components/charts/CandleChart';
 // Removed PredictionHistoryChart per request
-import VolatilityChart from '../components/Charts/VolatilityChart';
-import TechnicalIndicatorsChart from '../components/Charts/TechnicalIndicatorsChart';
+import VolatilityChart from '../components/charts/VolatilityChart';
+import TechnicalIndicatorsChart from '../components/charts/TechnicalIndicatorsChart';
 import { useParams } from 'react-router-dom';
 import { fetchRawData, fetchTechnicalIndicators, fetchAnalysisSummary } from '../services/apiClient';
+import useWebSocket from '../hooks/useWebSocket';
 
 export default function StockDetail() {
   const params = useParams();
@@ -40,6 +41,52 @@ export default function StockDetail() {
 function StockAnalysis({ symbol }) {
   const [data, setData] = useState(null);
   const [summary, setSummary] = useState(null);
+  const [prevClose, setPrevClose] = useState(null);
+  
+  // WebSocket for live updates
+  const wsBase = (process.env.REACT_APP_API_BASE || 'http://localhost:8000').replace(/^http/, 'ws');
+  const wsUrl = `${wsBase}/ws/price/${symbol}`;
+
+  const handleMessage = useCallback((msg) => {
+    if (msg?.last_candle) {
+      setData(prev => {
+        if (!prev || !prevClose) return prev;
+
+        const c = msg.last_candle;
+        const i = msg.indicators || {};
+        
+        const currentClose = Number(c.close);
+        const change = currentClose - prevClose;
+        const changePct = (change / prevClose) * 100;
+
+        return {
+          ...prev,
+          price: {
+            ...prev.price,
+            open: fmt(c.open),
+            high: fmt(c.high),
+            low: fmt(c.low),
+            close: fmt(c.close),
+            volume: Number(c.volume).toLocaleString(),
+            change: change.toFixed(2),
+            changePct: changePct.toFixed(2),
+            isUp: change >= 0
+          },
+          tech: {
+            ...prev.tech,
+            rsi: i.rsi ? Number(i.rsi).toFixed(1) : prev.tech.rsi,
+            macd: i.macd ? Number(i.macd).toFixed(2) : prev.tech.macd,
+            sma: i.sma ? fmt(i.sma) : prev.tech.sma,
+            ema: i.ema ? fmt(i.ema) : prev.tech.ema
+          }
+        };
+      });
+    }
+  }, [prevClose]);
+
+  useWebSocket(wsUrl, {
+    onMessage: handleMessage
+  });
   
   useEffect(() => {
     let cancelled = false;
@@ -62,9 +109,11 @@ function StockAnalysis({ symbol }) {
 
         // Calculate change
         const close = Number(latest.close);
-        const prevClose = Number(prev.close);
-        const change = close - prevClose;
-        const changePct = prevClose ? (change / prevClose) * 100 : 0;
+        const pClose = Number(prev.close);
+        setPrevClose(pClose);
+
+        const change = close - pClose;
+        const changePct = pClose ? (change / pClose) * 100 : 0;
 
         setData({
           price: {

@@ -12,6 +12,7 @@ from src.components.data_transformation import DataTransformation
 from src.database.connection import SessionLocal
 from src.database.models import Predictions
 from src.utils import load_obj
+from src.components.two_stage_trainer import focal_loss
 
 router = APIRouter()
 
@@ -29,7 +30,11 @@ def load_for_inference(symbol: str):
     if not base.exists():
         raise FileNotFoundError("Model not trained for this symbol.")
 
-    direction = tf.keras.models.load_model(base / f"{symbol}_direction.keras")
+    # We need to provide the custom loss function used during training
+    # Note: focal_loss() returns the actual loss function named 'loss_fn'
+    custom_objects = {"loss_fn": focal_loss()}
+    
+    direction = tf.keras.models.load_model(base / f"{symbol}_direction.keras", custom_objects=custom_objects)
     ret = tf.keras.models.load_model(base / f"{symbol}_return.keras")
     ind_scaler = load_obj(base / f"{symbol}_ind_scaler.pkl")
     target_scaler = load_obj(base / f"{symbol}_target_scaler.pkl")
@@ -72,7 +77,7 @@ def make_one_prediction(symbol: str):
         df = get_closed_candles(df_raw)
 
         # 3) transform
-        X_seq, X_ind, y_ret, y_dir, feat, vol_array = artifacts["transformer"].fin_data_transform(df)
+        X_seq, X_ind, y_ret, y_dir, feat, vol_array, _, _ = artifacts["transformer"].fin_data_transform(df, inference=True)
 
         X_seq_last = X_seq[-1:].astype("float32")
         X_ind_last = X_ind[-1:].astype("float32")
@@ -82,17 +87,13 @@ def make_one_prediction(symbol: str):
         X_ind_last = artifacts["ind_scaler"].transform(X_ind_last)
 
         # 5) direction prediction
-        p = float(
-            artifacts["direction"].predict([X_seq_last, X_ind_last], verbose=0)[0][0]
-        )
+        p = artifacts["direction"].predict([X_seq_last, X_ind_last], verbose=0)[0][0].item()
         direction = 1 if p >= 0.55 else 0   # stable: no +/-1, only 0/1
 
         # 6) return prediction
-        ret_scaled = float(
-            artifacts["return"].predict([X_seq_last, X_ind_last], verbose=0)[0][0]
-        )
+        ret_scaled = artifacts["return"].predict([X_seq_last, X_ind_last], verbose=0)[0][0].item()
 
-        ret_norm = artifacts["target_scaler"].inverse_transform([[ret_scaled]])[0][0]
+        ret_norm = artifacts["target_scaler"].inverse_transform([[ret_scaled]])[0][0].item()
         predicted_return = float(ret_norm * (vol20_last + 1e-9))
 
         # 7) price estimation

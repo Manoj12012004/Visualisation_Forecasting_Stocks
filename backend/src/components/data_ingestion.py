@@ -37,7 +37,9 @@ class DataIngestion:
         """
         try:
             # Use max available daily data; adjust period if needed
-            raw = yf.download(self.stock_symbol, period=period, interval=interval, progress=False)
+            # auto_adjust=False ensures we get 'Close' and 'Adj Close' separately (or just raw Close)
+            # This suppresses the FutureWarning about auto_adjust default changing.
+            raw = yf.download(self.stock_symbol, period=period, interval=interval, progress=False, auto_adjust=False)
             if raw is None or raw.empty:
                 raise ValueError(f"No data returned by yfinance for symbol: {self.stock_symbol}")
             
@@ -78,7 +80,7 @@ class DataIngestion:
         """
 
         # Fetch the last 1m candle (Yahoo may delay; tail(1) is fine for last price)
-        data = yf.download(self.stock_symbol, period="1d", interval="1m", progress=False).tail(1)
+        data = yf.download(self.stock_symbol, period="1d", interval="1m", progress=False, auto_adjust=False).tail(1)
 
         if data.empty:
             raise ValueError(f"No data returned by Yahoo Finance for symbol: {self.stock_symbol}")
