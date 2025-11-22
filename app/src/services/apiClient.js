@@ -4,14 +4,66 @@ import axios from 'axios';
 const baseURL = process.env.REACT_APP_API_BASE || process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000';
 export const api = axios.create({ baseURL });
 
-// ---------------- Stocks ----------------
-export async function listStocks() {
-  const { data } = await api.get('/stocks/list');
-  return data;
+// ---------------- Lightweight In-Memory Cache ----------------
+// Keyed by endpoint + sorted params, with per-entry TTL
+const _cache = new Map();
+
+function cacheKey(path, params) {
+  const normalized = params && typeof params === 'object' ? Object.keys(params).sort().reduce((acc, k) => { acc[k] = params[k]; return acc; }, {}) : undefined;
+  return `${path}::${JSON.stringify(normalized || {})}`;
 }
 
-export async function trainStock(symbol) {
-  const { data } = await api.get(`/stocks/${symbol}/train`);
+function cacheGet(path, params) {
+  const key = cacheKey(path, params);
+  const hit = _cache.get(key);
+  if (!hit) return undefined;
+  if (hit.expiresAt && hit.expiresAt < Date.now()) {
+    _cache.delete(key);
+    return undefined;
+  }
+  return hit.value;
+}
+
+function cacheSet(path, params, value, ttlMs) {
+  const key = cacheKey(path, params);
+  const expiresAt = ttlMs ? Date.now() + Number(ttlMs) : undefined;
+  _cache.set(key, { value, expiresAt });
+  return value;
+}
+
+export function invalidateCache(pathPrefix) {
+  if (!pathPrefix) {
+    _cache.clear();
+    return;
+  }
+  for (const key of _cache.keys()) {
+    if (key.startsWith(pathPrefix)) _cache.delete(key);
+  }
+}
+
+// Default TTLs (ms)
+const TTL = {
+  veryShort: Number(process.env.REACT_APP_CACHE_TTL_VERY_SHORT_MS || 5_000),
+  short: Number(process.env.REACT_APP_CACHE_TTL_SHORT_MS || 30_000),
+  medium: Number(process.env.REACT_APP_CACHE_TTL_MEDIUM_MS || 120_000),
+  long: Number(process.env.REACT_APP_CACHE_TTL_LONG_MS || 600_000),
+};
+
+async function getWithCache(path, { params, ttlMs } = {}) {
+  const cached = cacheGet(path, params);
+  if (cached !== undefined) return cached;
+  const { data } = await api.get(path, params ? { params } : undefined);
+  return cacheSet(path, params, data, ttlMs);
+}
+
+// ---------------- Stocks ----------------
+export async function listStocks() {
+  // Names list changes rarely; cache longer
+  return getWithCache('/stocks/list', { ttlMs: TTL.long });
+}
+
+export async function trainStock(symbol, force = false) {
+  const { data } = await api.get(`/stocks/${symbol}/train`, { params: { force } });
   return data;
 }
 
@@ -32,7 +84,11 @@ export async function backtestSimple(symbol, { threshold = 0.6, feeBps = 1, slip
   return data;
 }
 
-// (Removed) backtestSimulate unused by current UI
+export async function backtestSimulateRange(symbol, options = {}) {
+  const params = { symbol, ...options };
+  const { data } = await api.get('/backtest/simulate_range', { params });
+  return data;
+}
 
 // ---------------- Evaluation Metrics ----------------
 export async function evaluatePredictions(symbol) {
@@ -41,14 +97,14 @@ export async function evaluatePredictions(symbol) {
 }
 
 export async function fetchMetrics(symbol) {
-  const { data } = await api.get('/evaluation/metrics', { params: { symbol } });
-  return data;
+  // Cache briefly to avoid repeated panels hitting at once
+  return getWithCache('/evaluation/metrics', { params: { symbol }, ttlMs: TTL.short });
 }
 
 // ---------------- Market ----------------
 export async function fetchHeatmap(symbols) {
   const params = symbols && symbols.length ? { symbols: symbols.join(',') } : undefined;
-  const { data } = await api.get('/market/heatmap', { params });
+  const data = await getWithCache('/market/heatmap', { params, ttlMs: TTL.veryShort });
   const items = Array.isArray(data) ? data : (data.items || []);
   // Normalize shape and scale to percent points
   return items.map(it => ({
@@ -64,27 +120,44 @@ export async function forecastNext(symbol, days = 1) {
 }
 
 // ---------------- Data ----------------
-export async function fetchRawData(symbol, limit = 200) {
-  const { data } = await api.get('/data/raw', { params: { symbol, limit } });
+export async function fetchRawData(symbol, limitOrOptions = 200) {
+  let params = { symbol };
+  if (typeof limitOrOptions === 'number') {
+    params.limit = limitOrOptions;
+  } else {
+    params = { symbol, ...limitOrOptions };
+  }
+  return getWithCache('/data/raw', { params, ttlMs: TTL.short });
+}
+
+// ---------------- Explainability ----------------
+export async function fetchFeatureImportance(symbol) {
+  const { data } = await api.get('/explain/feature-importance', { params: { symbol } });
   return data;
 }
 
-// (Removed) Explainability endpoints not used in the streamlined UI
+export async function fetchSequenceAttribution(symbol) {
+  const { data } = await api.get('/explain/sequence-attribution', { params: { symbol } });
+  return data;
+}
 
 // ---------------- Technical Indicators ----------------
 export async function fetchTechnicalIndicators(symbol, options = {}) {
   // Only pass supported params to avoid backend errors
-  const allow = new Set(['symbol','limit','sma_window','ema_window','bb_window','rsi_window','macd_fast','macd_slow','macd_signal','bb_k']);
+  const allow = new Set(['symbol','limit','period','interval','sma_window','ema_window','bb_window','rsi_window','macd_fast','macd_slow','macd_signal','bb_k']);
   const params = { symbol };
   for (const [k,v] of Object.entries(options || {})) {
     if (allow.has(k)) params[k] = v;
   }
-  const { data } = await api.get('/data/technical', { params });
-  return data; // expected { symbol, items: [...] }
+  return getWithCache('/data/technical', { params, ttlMs: TTL.medium }); // expected { symbol, items: [...] }
+}
+
+export async function fetchAnalysisSummary(symbol) {
+  return getWithCache('/data/analysis/summary', { params: { symbol }, ttlMs: TTL.short });
 }
 
 export async function forecastCone(symbol, opts = {}) {
   const params = { symbol, ...(opts || {}) };
-  const { data } = await api.get('/data/forecast_cone', { params });
-  return data; // expected { path: [...] } or similar
+  return getWithCache('/data/forecast_cone', { params, ttlMs: TTL.medium }); // expected { path: [...] } or similar
 }
+

@@ -14,15 +14,32 @@ router = APIRouter()
 
 
 @router.get("/raw")
-def raw_data(symbol: str, limit: int = 200):
+def raw_data(symbol: str, period: str = "5y", interval: str = "1d", limit: int = 5000):
     try:
-        df = DataIngestion(symbol).fin_data_ingestion()
-        cols = [c for c in ["date", "open", "high", "low", "close", "volume"] if c in df.columns]
-        out = df.tail(int(max(1, min(limit, 2000)))).reset_index(drop=True)
-        rows = out[cols].to_dict(orient="records")
-        for r in rows:
-            if "date" in r and hasattr(r["date"], "isoformat"):
-                r["date"] = r["date"].isoformat()
+        df = DataIngestion(symbol).fin_data_ingestion(period=period, interval=interval)
+        use_limit = int(max(1, min(limit, 10000)))
+        out = df.tail(use_limit).reset_index(drop=True)
+        # Build rows explicitly to avoid pandas/numpy types or multi-index artifacts creating non-string keys
+        rows = []
+        for tup in out.itertuples():
+            try:
+                date_val = getattr(tup, 'date', None)
+                if hasattr(date_val, 'isoformat'):
+                    date_val = date_val.isoformat()
+                elif date_val is not None:
+                    date_val = str(date_val)
+                row = {
+                    'date': date_val,
+                    'open': float(getattr(tup, 'open')) if hasattr(tup, 'open') else None,
+                    'high': float(getattr(tup, 'high')) if hasattr(tup, 'high') else None,
+                    'low': float(getattr(tup, 'low')) if hasattr(tup, 'low') else None,
+                    'close': float(getattr(tup, 'close')) if hasattr(tup, 'close') else None,
+                    'volume': float(getattr(tup, 'volume')) if hasattr(tup, 'volume') else None,
+                }
+                rows.append(row)
+            except Exception:
+                # Skip malformed row
+                continue
         return {"symbol": symbol.upper(), "rows": rows}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -99,10 +116,87 @@ def feature_summary(symbol: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/analysis/summary")
+def analysis_summary(symbol: str):
+    """
+    Returns a trading signal summary (Buy/Sell/Neutral) based on technical indicators.
+    """
+    try:
+        df = DataIngestion(symbol).fin_data_ingestion(period="6mo", interval="1d")
+        if df is None or df.empty:
+            raise ValueError("No data available")
+        
+        tfm = DataTransformation()
+        # Use standard settings for analysis
+        tech = tfm.technical_view(df)
+        last = tech.iloc[-1]
+        
+        # 1. RSI Signal
+        rsi = last.get("rsi", 50)
+        if rsi > 70: rsi_sig = "Sell"
+        elif rsi < 30: rsi_sig = "Buy"
+        else: rsi_sig = "Neutral"
+        
+        # 2. MACD Signal
+        macd = last.get("macd", 0)
+        signal = last.get("macd_signal", 0)
+        macd_sig = "Buy" if macd > signal else "Sell"
+        
+        # 3. Trend (SMA 50 vs Price)
+        # We need to ensure SMA50 is calculated. technical_view calculates SMA based on window param (default 20).
+        # Let's calculate SMA50 manually here or ensure technical_view provides it.
+        # For simplicity, let's use the SMA20 provided as "sma" and compare to price for short-term trend.
+        price = last["close"]
+        sma20 = last.get("sma", price)
+        trend_sig = "Bullish" if price > sma20 else "Bearish"
+        
+        # 4. Support/Resistance (Simple Pivot Points from last 20 days)
+        recent = tech.tail(20)
+        support = float(recent["low"].min())
+        resistance = float(recent["high"].max())
+        
+        # Composite Score (Simple)
+        score = 0
+        if rsi_sig == "Buy": score += 1
+        elif rsi_sig == "Sell": score -= 1
+        
+        if macd_sig == "Buy": score += 1
+        else: score -= 1
+        
+        if trend_sig == "Bullish": score += 1
+        else: score -= 1
+        
+        if score >= 2: recommendation = "Strong Buy"
+        elif score == 1: recommendation = "Buy"
+        elif score == 0: recommendation = "Neutral"
+        elif score == -1: recommendation = "Sell"
+        else: recommendation = "Strong Sell"
+        
+        return {
+            "symbol": symbol.upper(),
+            "recommendation": recommendation,
+            "signals": {
+                "rsi": {"value": float(rsi), "signal": rsi_sig},
+                "macd": {"value": float(macd), "signal": macd_sig},
+                "trend": {"signal": trend_sig},
+            },
+            "levels": {
+                "support": support,
+                "resistance": resistance,
+                "pivot": float((last["high"] + last["low"] + last["close"]) / 3)
+            },
+            "price": float(price)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/technical")
 def technical_indicators(
     symbol: str,
-    limit: int = 400,
+    period: str = "5y",
+    interval: str = "1d",
+    limit: int = 5000,
     sma_window: int = 20,
     ema_window: int = 20,
     bb_window: int = 20,
@@ -116,7 +210,7 @@ def technical_indicators(
     Returns OHLCV plus common technical indicators for charting.
     """
     try:
-        df = DataIngestion(symbol).fin_data_ingestion()
+        df = DataIngestion(symbol).fin_data_ingestion(period=period, interval=interval)
         if df is None or df.empty:
             raise ValueError("Ingestion returned empty dataframe")
         missing_cols = {c for c in ['date','open','high','low','close','volume'] if c not in df.columns}
@@ -134,7 +228,7 @@ def technical_indicators(
             macd_signal=macd_signal,
             bb_k=bb_k,
         )
-        out = tech.tail(int(max(1, min(limit, 2000)))).reset_index(drop=True)
+        out = tech.tail(int(max(1, min(limit, 10000)))).reset_index(drop=True)
         rows = out.to_dict(orient="records")
         for r in rows:
             if "date" in r and hasattr(r["date"], "isoformat"):

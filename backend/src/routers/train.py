@@ -27,7 +27,7 @@ def list_stocks():
     return {"stocks": [r[0] for r in rows]}
 
 @router.get("/stocks/{symbol}/train")
-def train_model(symbol: str):
+def train_model(symbol: str, force: bool = False):
     """Train a two-stage CNN-BiLSTM model: direction classifier + return regressor.
     
     Educational notes:
@@ -37,18 +37,19 @@ def train_model(symbol: str):
     """
     db = SessionLocal()
     try:
-        existing_model=load_model_from_db(db,symbol.upper())
-        if existing_model:
-            db.close()
-            model_dict=existing_model.__dict__.copy()
-            model_dict.pop('_sa_instance_state',None)
-            
-            return {
-                'status':"Model already exists", 
-                'message': 'Use retrain endpoint to update the model',
-                'model_data':jsonable_encoder(model_dict),
-                'learning_tip': 'Two-stage training improves generalization by first learning market direction, then refining return predictions'
-            }
+        if not force:
+            existing_model=load_model_from_db(db,symbol.upper())
+            if existing_model:
+                db.close()
+                model_dict=existing_model.__dict__.copy()
+                model_dict.pop('_sa_instance_state',None)
+                
+                return {
+                    'status':"Model already exists", 
+                    'message': 'Use force=true to retrain the model',
+                    'model_data':jsonable_encoder(model_dict),
+                    'learning_tip': 'Two-stage training improves generalization by first learning market direction, then refining return predictions'
+                }
         
         # Use TwoStageTrainer
         ingestor = DataIngestion(symbol)
@@ -69,6 +70,7 @@ def train_model(symbol: str):
             'stock_symbol': symbol,
             'direction_metrics': result['direction_metrics'],
             'regression_metrics': result['regression_metrics'],
+            'validation_data': result.get('validation_data')
         }
     except Exception as e:
         db.rollback()

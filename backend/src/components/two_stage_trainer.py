@@ -46,7 +46,7 @@ class SimpleTrainer:
         combined = tf.keras.layers.concatenate([x, ind_input])
 
         # Dense
-        combined = tf.keras.layers.Dense(128, activation="relu")(combined)
+        combined = tf.keras.layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(0.01))(combined)
         combined = tf.keras.layers.Dropout(0.4)(combined)
 
         out = tf.keras.layers.Dense(1, activation="sigmoid")(combined)
@@ -54,8 +54,8 @@ class SimpleTrainer:
         model = tf.keras.Model(inputs=[seq_input, ind_input], outputs=out)
         model.compile(
             optimizer=tf.keras.optimizers.Adam(1e-3),
-            loss=tf.keras.losses.BinaryCrossentropy(label_smoothing=0.02),
-            # loss=focal_loss(gamma=1.5, alpha=0.5),
+            # loss=tf.keras.losses.BinaryCrossentropy(label_smoothing=0.02),
+            loss=focal_loss(gamma=2.0, alpha=0.25),
             metrics=["accuracy"]
         )
         return model
@@ -75,8 +75,8 @@ class SimpleTrainer:
         x = tf.keras.layers.GlobalAveragePooling1D()(att)
         combined = tf.keras.layers.concatenate([x, ind_input])
 
-        combined = tf.keras.layers.Dense(64, activation="relu")(combined)
-        combined = tf.keras.layers.Dropout(0.3)(combined)
+        combined = tf.keras.layers.Dense(64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(0.01))(combined)
+        combined = tf.keras.layers.Dropout(0.4)(combined)
 
         out = tf.keras.layers.Dense(1)(combined)
 
@@ -235,7 +235,7 @@ class SimpleTrainer:
 def train_two_stage_and_persist(symbol, df, transformer, model_store_path="artifacts/models/", db_session=None):
     try:
         # 1) transform
-        X_seq, X_ind, y_return, y_dir, feat, vol_array = transformer.fin_data_transform(df)
+        X_seq, X_ind, y_return, y_dir, feat, vol_array, dates, prices = transformer.fin_data_transform(df)
 
         # 2) split chronological
 
@@ -248,6 +248,8 @@ def train_two_stage_and_persist(symbol, df, transformer, model_store_path="artif
 
         vol_train = vol_array[:split]
         vol_val = vol_array[split:]
+        dates_val = dates[split:]
+        prices_val = prices[split:]
         
         trainer = SimpleTrainer(sequence_length=transformer.sequence_length)
 
@@ -355,7 +357,13 @@ def train_two_stage_and_persist(symbol, df, transformer, model_store_path="artif
                 "return": str(ret_path),
             },
             "db_result": db_result,
-            "predictions": predictions
+            "predictions": predictions,
+            "validation_data": {
+                "dates": dates_val.tolist(),
+                "prices": prices_val.tolist(),
+                "actual_returns": y_val_actual.tolist(),
+                "predicted_returns": y_pred_actual.tolist()
+            }
         }
 
     except Exception as e:

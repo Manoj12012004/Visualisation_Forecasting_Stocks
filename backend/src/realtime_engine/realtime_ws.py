@@ -23,26 +23,24 @@ async def ws_price(ws: WebSocket, symbol: str):
     interval = max(1, min(60, interval))
     while True:
         try:
-            df = ingest.fin_data_ingestion()
-            # send last N candles or last tick
-            # Normalize date to string for JSON safety
-            last_time = df.iloc[-1]['date']
-            if hasattr(last_time, "isoformat"):
+            candle = ingest.get_latest_candle()
+            last_time = candle.get('date')
+            if hasattr(last_time, 'isoformat'):
                 last_time = last_time.isoformat()
             payload = {
                 "symbol": symbol.upper(),
                 "timestamp": datetime.utcnow().isoformat(),
                 "last_candle": {
                     "time": last_time,
-                    "open": float(df.iloc[-1]['open']),
-                    "high": float(df.iloc[-1]['high']),
-                    "low": float(df.iloc[-1]['low']),
-                    "close": float(df.iloc[-1]['close']),
-                    "volume": float(df.iloc[-1]['volume'])
+                    "open": candle.get('open'),
+                    "high": candle.get('high'),
+                    "low": candle.get('low'),
+                    "close": candle.get('close'),
+                    "volume": candle.get('volume')
                 }
             }
             await ws.send_text(json.dumps(payload))
-            await asyncio.sleep(interval)   # throttled by interval seconds
+            await asyncio.sleep(interval)
         except Exception as e:
-            await ws.send_text(json.dumps({"error": str(e)}))
+            await ws.send_text(json.dumps({"error": f"price_feed_error: {e}"}))
             await asyncio.sleep(max(5, interval))

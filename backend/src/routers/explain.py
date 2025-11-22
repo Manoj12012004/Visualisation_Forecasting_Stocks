@@ -10,7 +10,7 @@ router = APIRouter()
 def _prepare_data(symbol: str):
     artifacts = load_for_inference(symbol)
     df = DataIngestion(symbol).fin_data_ingestion()
-    X_seq, X_ind, y_ret, y_dir, feat, vol_array = artifacts["transformer"].fin_data_transform(df)
+    X_seq, X_ind, y_ret, y_dir, feat, vol_array, dates, prices = artifacts["transformer"].fin_data_transform(df)
     X_ind_scaled = artifacts["ind_scaler"].transform(X_ind)
     return artifacts, df, X_seq, X_ind_scaled, y_dir, feat
 

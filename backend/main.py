@@ -6,6 +6,7 @@ from src.routers import evaluation as evaluation_router
 from src.routers import market as market_router
 from src.routers import forecast as forecast_router
 from src.routers import data_models as data_models_router
+from src.routers import explain as explain_router
 from src.realtime_engine import realtime_ws
 from src.database.connection import Base, engine
 import asyncio
@@ -46,6 +47,7 @@ app.include_router(evaluation_router.router, prefix="/evaluation")
 app.include_router(market_router.router, prefix="/market")
 app.include_router(forecast_router.router)
 app.include_router(data_models_router.router, prefix="/data")
+app.include_router(explain_router.router, prefix="/explain")
 app.include_router(realtime_ws.router, prefix="/ws")
 
 # Lightweight route introspection for debugging

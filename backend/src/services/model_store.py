@@ -36,7 +36,7 @@ def load_model_from_db(session: Session, stock_symbol: str):
         return record
     return None
 
-def save_predictions(session:Session,stock_symbol,prediction_time,predicted_return,predicted_direction,signal,confidence,explaination):
+def save_predictions(session:Session,stock_symbol,prediction_time,predicted_return,signal,confidence):
     try:
         prediction=Predictions(
             stock_symbol=stock_symbol,

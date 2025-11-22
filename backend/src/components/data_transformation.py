@@ -113,6 +113,7 @@ class DataTransformation:
         df = df.iloc[:-self.horizon].reset_index(drop=True)
         # Build sequences
         X_seq_list, X_ind_list, y_return_list, y_dir_list,vol_list = [], [], [], [],[]
+        date_list, price_list = [], []
         seq_len = self.sequence_length
 
         # Prepare arrays for indexing speed
@@ -126,6 +127,8 @@ class DataTransformation:
             target_return = df["target_return"].iloc[i]
             target_dir = df["target_direction"].iloc[i]
             vol20=df['vol20'].iloc[i]
+            cur_date = df["date"].iloc[i]
+            cur_close = df["close"].iloc[i]
 
             # Basic sanity: a few NaNs can show up if windows are short; skip
             if seq_slice[seq_feats].isna().any().any() or ind_row[ind_feats].isna().any() or pd.isna(target_return) or pd.isna(vol20):
@@ -148,6 +151,8 @@ class DataTransformation:
             y_return_list.append(norm_target)
             y_dir_list.append(int(target_dir))
             vol_list.append(vol20)
+            date_list.append(cur_date)
+            price_list.append(cur_close)
 
         if len(X_seq_list) == 0:
             raise ValueError("No sequences could be built. Check data length / NaNs / sequence length.")
@@ -163,10 +168,12 @@ class DataTransformation:
         y_return = y_return_series.astype(np.float32) 
         y_dir = np.array(y_dir_list, dtype=np.int8)
         vol_array = np.array(vol_list, dtype=np.float32) 
+        dates_array = np.array(date_list)
+        prices_array = np.array(price_list, dtype=np.float32)
 
         feature_info = {"sequence": seq_feats, "indicator": ind_feats}
 
-        return X_seq, X_ind, y_return, y_dir, feature_info,vol_array
+        return X_seq, X_ind, y_return, y_dir, feature_info, vol_array, dates_array, prices_array
 
     # ------------------------ Utilities for training-time scaling ------------------------
     def fit_train_scalers(self, X_ind_train: np.ndarray, y_train: np.ndarray):
@@ -233,29 +240,80 @@ class DataTransformation:
           sma, ema, rsi, macd, macd_signal, macd_hist,
           bb_mid, bb_upper, bb_lower]
         """
+        # --- Column normalization BEFORE availability check ---
+        try:
+            # Flatten MultiIndex if present (e.g. yfinance multi-ticker frames)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = [ (c[0] if isinstance(c, tuple) and len(c)>0 else c) for c in df.columns ]
+            # Lowercase all names for consistency
+            df.columns = [ str(c).lower().strip() for c in df.columns ]
+            # Common alternate names mapping
+            rename_map = {
+                'datetime': 'date',
+                'timestamp': 'date',
+                'adj close': 'close',
+                'close*': 'close',  # sometimes providers append markers
+            }
+            for k,v in list(rename_map.items()):
+                if k in df.columns and v not in df.columns:
+                    df = df.rename(columns={k: v})
+            # If date is index instead of column convert
+            if 'date' not in df.columns and isinstance(df.index, pd.DatetimeIndex):
+                df = df.reset_index().rename(columns={'index':'date'})
+        except Exception:
+            pass
+
         self._check_feature_availability(df)
         df = df.sort_values("date").reset_index(drop=True).copy()
 
-        # SMA/EMA
-        df["sma"] = df["close"].rolling(int(max(1, sma_window))).mean()
-        df["ema"] = df["close"].ewm(span=int(max(1, ema_window)), adjust=False).mean()
+        # Ensure numeric types to avoid ta errors on object dtypes
+        for col in ["open","high","low","close","volume"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
 
-        # RSI
-        df["rsi"] = ta.momentum.rsi(close=df["close"], window=int(max(2, rsi_window)))
+        # SMA / EMA (defensive)
+        try:
+            df["sma"] = df["close"].rolling(int(max(1, sma_window))).mean()
+        except Exception:
+            df["sma"] = np.nan
+        try:
+            df["ema"] = df["close"].ewm(span=int(max(1, ema_window)), adjust=False).mean()
+        except Exception:
+            df["ema"] = np.nan
 
-        # MACD
-        ema_f = df["close"].ewm(span=int(max(2, macd_fast)), adjust=False).mean()
-        ema_s = df["close"].ewm(span=int(max(2, macd_slow)), adjust=False).mean()
-        df["macd"] = ema_f - ema_s
-        df["macd_signal"] = df["macd"].ewm(span=int(max(2, macd_signal)), adjust=False).mean()
-        df["macd_hist"] = df["macd"] - df["macd_signal"]
+        # RSI with fallback manual computation if ta fails
+        try:
+            df["rsi"] = ta.momentum.rsi(close=df["close"], window=int(max(2, rsi_window)))
+        except Exception:
+            win = int(max(2, rsi_window))
+            delta = df["close"].diff()
+            gain = (delta.clip(lower=0)).rolling(win).mean()
+            loss = (-delta.clip(upper=0)).rolling(win).mean()
+            rs = gain / (loss + 1e-9)
+            df["rsi"] = 100 - (100 / (1 + rs))
+
+        # MACD family
+        try:
+            ema_f = df["close"].ewm(span=int(max(2, macd_fast)), adjust=False).mean()
+            ema_s = df["close"].ewm(span=int(max(2, macd_slow)), adjust=False).mean()
+            df["macd"] = ema_f - ema_s
+            df["macd_signal"] = df["macd"].ewm(span=int(max(2, macd_signal)), adjust=False).mean()
+            df["macd_hist"] = df["macd"] - df["macd_signal"]
+        except Exception:
+            df["macd"] = df["macd_signal"] = df["macd_hist"] = np.nan
 
         # Bollinger Bands
-        bb_mid = df["close"].rolling(int(max(1, bb_window))).mean()
-        bb_std = df["close"].rolling(int(max(1, bb_window))).std()
-        df["bb_mid"] = bb_mid
-        df["bb_upper"] = bb_mid + float(bb_k) * bb_std
-        df["bb_lower"] = bb_mid - float(bb_k) * bb_std
+        try:
+            bb_mid = df["close"].rolling(int(max(1, bb_window))).mean()
+            bb_std = df["close"].rolling(int(max(1, bb_window))).std()
+            df["bb_mid"] = bb_mid
+            df["bb_upper"] = bb_mid + float(bb_k) * bb_std
+            df["bb_lower"] = bb_mid - float(bb_k) * bb_std
+        except Exception:
+            df["bb_mid"] = df["bb_upper"] = df["bb_lower"] = np.nan
+
+        # Drop rows where close is NaN to keep output clean
+        df = df.dropna(subset=["close"]).reset_index(drop=True)
 
         # Keep only the fields needed for UI
         keep = [c for c in [

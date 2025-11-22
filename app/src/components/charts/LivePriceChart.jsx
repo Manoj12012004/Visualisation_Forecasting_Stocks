@@ -1,31 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
-import useWebsocket from '../../hooks/useWebSocket';
+import { useEffect, useRef } from 'react';
 import { createChart } from 'lightweight-charts';
+import { fetchRawData } from '../../services/apiClient';
 
-// Props: symbol (string), wsUrl factory (optional)
+// Props: symbol (string)
 export default function LivePriceChart({ symbol, height = 260 }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const seriesRef = useRef(null);
-  const [lastPrice, setLastPrice] = useState(null);
 
-  // Build websocket URL from env base
-  const origin = (process.env.NEXT_PUBLIC_API_BASE || process.env.REACT_APP_API_BASE || window.location.origin || '').trim();
-  // Backend exposes /ws/price/{symbol}; fallback to current origin if env not provided
-  const wsUrl = origin.replace(/^http/, 'ws') + `/ws/price/${symbol}`;
-
-  useWebsocket(wsUrl, {
-    onMessage: (msg) => {
-      const price = msg?.last_candle?.close;
-      if (!seriesRef.current || price == null) return;
-      const point = { time: Math.floor(Date.now() / 1000), value: price };
-      seriesRef.current.update(point);
-      setLastPrice(price);
-    }
-  }, !!symbol);
+  // Static chart placeholder – no live updates or polling.
 
   useEffect(() => {
     if (!containerRef.current) return;
+    if (chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
+    }
     chartRef.current = createChart(containerRef.current, {
       height,
       layout: { background: { type: 'Solid', color: '#ffffff' }, textColor: '#1f2937' },
@@ -33,14 +23,47 @@ export default function LivePriceChart({ symbol, height = 260 }) {
       timeScale: { timeVisible: true, secondsVisible: true }
     });
     seriesRef.current = chartRef.current.addLineSeries({ color: '#2563eb', lineWidth: 2 });
-    return () => { chartRef.current?.remove(); };
+    return () => { 
+      if (chartRef.current) {
+        chartRef.current.remove();
+        chartRef.current = null;
+      }
+    };
   }, [symbol, height]);
+
+  // No polling effect – intentionally left static.
+  // One-time historical load
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!symbol || !seriesRef.current) return;
+      try {
+        const data = await fetchRawData(symbol, 200); // limit can be adjusted
+        const rows = data?.rows || data?.items || [];
+        const points = rows
+          .map(r => {
+            const t = r?.date ? Math.floor(new Date(r.date).getTime() / 1000) : undefined;
+            const price = Number(r?.close);
+            if (!t || !Number.isFinite(price)) return null;
+            return { time: t, value: price };
+          })
+          .filter(Boolean);
+        if (!cancelled && points.length) {
+          seriesRef.current.setData(points);
+        }
+      } catch (_) {
+        // silent fail
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [symbol]);
 
   return (
     <div className="bg-white rounded shadow p-3">
       <div className="flex justify-between items-center mb-2">
-        <h3 className="text-sm font-semibold">Live Price - {symbol}</h3>
-        <div className="text-xs text-gray-600">{lastPrice ? `₹${lastPrice.toFixed(2)}` : 'Waiting...'}</div>
+        <h3 className="text-sm font-semibold">Price - {symbol}</h3>
+        <div className="text-xs text-gray-600">Static snapshot (loaded once)</div>
       </div>
       <div ref={containerRef} />
     </div>

@@ -7,6 +7,7 @@ export default function Sidebar() {
     const nav = [
         { href: '/', label: 'Dashboard', icon: <FaHome /> },
         { href: '/stocks/AAPL', label: 'Stock Detail', icon: <FaChartLine /> },
+        { href: '/forecast/AAPL', label: 'Forecast & Train', icon: <FaFlask /> },
         { href: '/portfolio', label: 'Portfolio', icon: <FaWallet /> },
         { href: '/backtest', label: 'Backtest Lab', icon: <FaFlask /> },
         { href: '/realtime', label: 'Realtime', icon: <FaChartLine /> },

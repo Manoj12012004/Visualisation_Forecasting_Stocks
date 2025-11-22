@@ -21,7 +21,7 @@ def forecast_next(symbol: str, days: int = 1):
         df_raw = DataIngestion(symbol).fin_data_ingestion()
         df = get_closed_candles(df_raw)
 
-        X_seq, X_ind, y_ret, y_dir, feat, vol_array = artifacts["transformer"].fin_data_transform(df)
+        X_seq, X_ind, y_ret, y_dir, feat, vol_array, dates, prices = artifacts["transformer"].fin_data_transform(df)
         Xs = X_seq[-1:].astype("float32")
         Xi = X_ind[-1:].astype("float32")
         Xi = artifacts["ind_scaler"].transform(Xi)
@@ -87,7 +87,7 @@ def forecast_cone(symbol: str, days: int = 7, confidence: float = 0.9):
         df_raw = DataIngestion(symbol).fin_data_ingestion()
         df = get_closed_candles(df_raw)
 
-        X_seq, X_ind, y_ret, y_dir, feat, vol_array = artifacts["transformer"].fin_data_transform(df)
+        X_seq, X_ind, y_ret, y_dir, feat, vol_array, dates, prices = artifacts["transformer"].fin_data_transform(df)
         if X_seq is None or len(X_seq) == 0:
             raise HTTPException(status_code=400, detail="Not enough data for forecasting")
 

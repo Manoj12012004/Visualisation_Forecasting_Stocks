@@ -5,7 +5,7 @@ import BacktestPage from './pages/Backtest';
 import StockDetail from './pages/StockDetail';
 import Portfolio from './pages/Portfolio';
 import RealtimePage from './pages/Realtime';
- 
+import ForecastPage from './pages/Forecast';
 
 function App() {
   return (
@@ -14,6 +14,8 @@ function App() {
         <Route path="/" element={<DashboardPage />} />
         <Route path="/stocks/:symbol" element={<StockDetail />} />
         <Route path="/stocks" element={<Navigate to="/stocks/AAPL" replace />} />
+        <Route path="/forecast/:symbol" element={<ForecastPage />} />
+        <Route path="/forecast" element={<Navigate to="/forecast/AAPL" replace />} />
         <Route path="/portfolio" element={<Portfolio />} />
         <Route path="/backtest" element={<BacktestPage />} />
         <Route path="/realtime" element={<RealtimePage />} />

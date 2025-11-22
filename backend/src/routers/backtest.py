@@ -29,7 +29,7 @@ def simple_backtest(
     df = DataIngestion(symbol).fin_data_ingestion()
 
     # Build features across history
-    X_seq, X_ind, y_ret, y_dir, feat, vol_array = artifacts["transformer"].fin_data_transform(df)
+    X_seq, X_ind, y_ret, y_dir, feat, vol_array, _, _ = artifacts["transformer"].fin_data_transform(df)
     if X_seq is None or len(X_seq) < 2:
         return {"error": "Not enough data for backtest"}
 
@@ -131,7 +131,7 @@ def simulate_range(
     symbol: str,
     start: str = "2023-01-01",
     end: str = "2023-12-31",
-    threshold: float = Query(0.6, ge=0.0, le=1.0),
+    threshold: float = Query(0.5, ge=0.0, le=1.0),
     fee_bps: int = Query(1, ge=0, le=1000),
     slippage_bps: int = Query(1, ge=0, le=2000),
     initial: float = Query(10000.0, gt=0.0),
@@ -144,7 +144,7 @@ def simulate_range(
     df = DataIngestion(symbol).fin_data_ingestion()
 
     # predictions over full available data
-    X_seq, X_ind, y_ret, y_dir, feat, vol_array = artifacts["transformer"].fin_data_transform(df)
+    X_seq, X_ind, y_ret, y_dir, feat, vol_array, _, _ = artifacts["transformer"].fin_data_transform(df)
     if X_seq is None or len(X_seq) < 2:
         return {"error": "Not enough data for backtest"}
 
@@ -182,10 +182,10 @@ def simulate_range(
         end_dt = d_slice.iloc[-1]
 
     # periods go from d_slice[j] -> d_slice[j+1]; choose j where d_slice[j] >= start_dt and d_slice[j+1] <= end_dt
-    idx0 = int(np.searchsorted(d_slice.values, start_dt, side='left'))
+    idx0 = int(d_slice.searchsorted(start_dt, side='left'))
     idx0 = max(0, min(idx0, n-1))
     # ensure we don't exceed
-    idx1 = int(np.searchsorted(d_slice.values, end_dt, side='right')) - 1
+    idx1 = int(d_slice.searchsorted(end_dt, side='right')) - 1
     idx1 = max(idx0, min(idx1, n-1))
 
     tr = trade_ret[idx0: idx1 + 1]
@@ -201,7 +201,64 @@ def simulate_range(
         for i in range(len(equity))
     ]
 
+    # --- Metrics Calculation (on the filtered range) ---
+    final_balance = float(equity[-1])
+    profit = final_balance - float(initial)
+    return_pct = float(final_balance / float(initial) - 1.0)
+    
+    # Win Rate
+    # signals in range: we need to slice signals too
+    # signals array is aligned with trade_ret (length n)
+    # tr is trade_ret[idx0: idx1 + 1]
+    # We need to know which trades were active. 
+    # trade_ret is (real_ret - cost) if signal else 0.
+    # So if trade_ret != 0, we traded? No, trade_ret can be 0 if real_ret == cost.
+    # Better to slice signals.
+    sig_slice = signals[idx0: idx1 + 1]
+    win_rate = float(np.mean(tr[sig_slice] > 0.0)) if np.any(sig_slice) else 0.0
+    trades_count = int(np.sum(sig_slice))
+
+    # Max Drawdown
+    eq_arr = np.array(equity)
+    peak = np.maximum.accumulate(eq_arr)
+    dd = (eq_arr - peak) / peak
+    drawdown_max = float(dd.min())
+
+    # CAGR
+    days = max(1, (ds.iloc[-1] - ds.iloc[0]).days)
+    years = days / 365.25
+    cagr = None
+    if years > 0 and final_balance > 0 and initial > 0:
+        try:
+            cagr = float((final_balance / float(initial)) ** (1.0 / years) - 1.0)
+        except:
+            cagr = None
+
+    # Sharpe
+    periods_per_year = len(tr) / years if years > 0 else 252.0
+    mu = float(np.mean(tr)) if tr.size > 0 else 0.0
+    sigma = float(np.std(tr, ddof=1)) if tr.size > 1 else 0.0
+    sharpe = float(np.sqrt(periods_per_year) * mu / sigma) if sigma > 0 else None
+
+    # Profit Factor
+    gross_profit = float(np.sum(tr[tr > 0])) if tr.size > 0 else 0.0
+    gross_loss = float(-np.sum(tr[tr < 0])) if tr.size > 0 else 0.0
+    profit_factor = float(gross_profit / gross_loss) if gross_loss > 0 else None
+
+    # Buy & Hold (over the range)
+    # closes aligned with ds: c_slice[idx0] is close at start, c_slice[idx1+1] is close at end
+    # c_slice is length n+1. ds is length n+1 (idx0 to idx1+1).
+    # Wait, ds is length len(tr)+1.
+    # c_slice indices: 0..n.
+    # tr indices: 0..n-1.
+    # idx0..idx1 is range in tr.
+    # corresponding closes are c_slice[idx0] (start price) to c_slice[idx1+1] (end price).
+    c_start = c_slice[idx0]
+    c_end = c_slice[idx1 + 1]
+    buy_hold = float(c_end / c_start - 1.0) if c_start > 0 else 0.0
+
     # Benchmark S&P 500 using yfinance
+
     try:
         sp = yf.download("^GSPC", start=str(ds.iloc[0].date()), end=str(ds.iloc[-1].date()) )
         sp = sp[~sp.index.duplicated(keep='first')]
@@ -220,6 +277,16 @@ def simulate_range(
         "symbol": symbol.upper(),
         "range": {"start": str(ds.iloc[0].date()), "end": str(ds.iloc[-1].date())},
         "initial": float(initial),
+        "final_balance": round(final_balance, 2),
+        "profit": round(profit, 2),
+        "return_pct": return_pct,
+        "cagr": cagr,
+        "sharpe_ratio": sharpe,
+        "win_rate": win_rate,
+        "profit_factor": profit_factor,
+        "drawdown_max": drawdown_max,
+        "buy_and_hold_return_pct": buy_hold,
+        "trades": trades_count,
         "model_equity": equity_curve,
         "benchmark": {"symbol": "^GSPC", "equity": bench},
         "params": {"threshold": threshold, "fee_bps": fee_bps, "slippage_bps": slippage_bps},

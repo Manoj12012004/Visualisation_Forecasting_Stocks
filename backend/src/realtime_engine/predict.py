@@ -31,8 +31,8 @@ def load_for_inference(symbol: str):
 
     direction = tf.keras.models.load_model(base / f"{symbol}_direction.keras")
     ret = tf.keras.models.load_model(base / f"{symbol}_return.keras")
-    ind_scaler = load_obj(base / "ind_scaler.pkl")
-    target_scaler = load_obj(base / "target_scaler.pkl")
+    ind_scaler = load_obj(base / f"{symbol}_ind_scaler.pkl")
+    target_scaler = load_obj(base / f"{symbol}_target_scaler.pkl")
 
     obj = {
         "direction": direction,
