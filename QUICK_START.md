@@ -172,4 +172,4 @@ This is an **educational tool**. Markets are risky. Never invest more than you c
 
 ---
 
-**Happy Learning! 🎓📈**
+
